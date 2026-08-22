@@ -40,20 +40,25 @@ app.get("/api/auth/me", (req, res) => {
 
 /* ================= MENU (đọc công khai) ================= */
 async function fullMenu() {
-  const categories = await all("SELECT id,name FROM categories ORDER BY sort_order");
-  const rawProducts = await all("SELECT * FROM products ORDER BY sort_order");
-  const products = [];
-  for (const p of rawProducts) {
-    const sizes = await all("SELECT id,size_name as name,price FROM product_sizes WHERE product_id=? ORDER BY price", [p.id]);
-    const toppingRows = await all("SELECT topping_id FROM product_toppings WHERE product_id=?", [p.id]);
-    products.push({
-      id: p.id, categoryId: p.category_id, name: p.name, description: p.description,
-      image: p.image, status: p.status, sizes, toppingIds: toppingRows.map((r) => r.topping_id),
-    });
-  }
-  const toppings = await all("SELECT id,name,price,active FROM toppings ORDER BY name");
-  const sugarLevels = await all("SELECT id,name FROM sugar_levels ORDER BY sort_order");
-  const iceLevels = await all("SELECT id,name FROM ice_levels ORDER BY sort_order");
+  const [categories, rawProducts, allSizes, allProdToppings, toppings, sugarLevels, iceLevels] = await Promise.all([
+    all("SELECT id,name FROM categories ORDER BY sort_order"),
+    all("SELECT * FROM products ORDER BY sort_order"),
+    all("SELECT id,product_id,size_name as name,price FROM product_sizes ORDER BY price"),
+    all("SELECT product_id,topping_id FROM product_toppings"),
+    all("SELECT id,name,price,active FROM toppings ORDER BY name"),
+    all("SELECT id,name FROM sugar_levels ORDER BY sort_order"),
+    all("SELECT id,name FROM ice_levels ORDER BY sort_order"),
+  ]);
+  const sizesByProduct = {};
+  for (const s of allSizes) (sizesByProduct[s.product_id] ||= []).push({ id: s.id, name: s.name, price: s.price });
+  const toppingIdsByProduct = {};
+  for (const t of allProdToppings) (toppingIdsByProduct[t.product_id] ||= []).push(t.topping_id);
+
+  const products = rawProducts.map((p) => ({
+    id: p.id, categoryId: p.category_id, name: p.name, description: p.description,
+    image: p.image, status: p.status,
+    sizes: sizesByProduct[p.id] || [], toppingIds: toppingIdsByProduct[p.id] || [],
+  }));
   return { categories, products, toppings, sugarLevels, iceLevels };
 }
 app.get("/api/menu", h(async (req, res) => res.json(await fullMenu())));
@@ -109,18 +114,16 @@ app.post("/api/orders", h(async (req, res) => {
 }));
 
 async function loadOrders() {
-  const orders = await all("SELECT * FROM orders ORDER BY created_at DESC");
-  const result = [];
-  for (const o of orders) {
-    const rawItems = await all("SELECT * FROM order_items WHERE order_id=?", [o.id]);
-    const items = [];
-    for (const it of rawItems) {
-      const toppings = await all("SELECT topping_name as name, topping_price as price FROM order_item_toppings WHERE order_item_id=?", [it.id]);
-      items.push({ ...it, toppings });
-    }
-    result.push({ ...o, items });
-  }
-  return result;
+  const [orders, allItems, allToppings] = await Promise.all([
+    all("SELECT * FROM orders ORDER BY created_at DESC"),
+    all("SELECT * FROM order_items"),
+    all("SELECT order_item_id, topping_name as name, topping_price as price FROM order_item_toppings"),
+  ]);
+  const toppingsByItem = {};
+  for (const t of allToppings) (toppingsByItem[t.order_item_id] ||= []).push({ name: t.name, price: t.price });
+  const itemsByOrder = {};
+  for (const it of allItems) (itemsByOrder[it.order_id] ||= []).push({ ...it, toppings: toppingsByItem[it.id] || [] });
+  return orders.map((o) => ({ ...o, items: itemsByOrder[o.id] || [] }));
 }
 app.get("/api/orders", requireRole("admin", "moderator", "staff"), h(async (req, res) => res.json(await loadOrders())));
 
