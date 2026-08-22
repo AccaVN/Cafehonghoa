@@ -139,7 +139,7 @@ function openProduct(productId) {
   }
   function paint() {
     const { unit, total } = calcTotal();
-    ov.innerHTML = `<div class="sheet" onclick="event.stopPropagation()">
+    ov.innerHTML = `<div class="sheet">
       <button class="x" onclick="document.getElementById('productOverlay').remove()"><svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>
       <h2>${esc(p.name)}</h2>
       ${p.description ? `<p class="desc-full">${esc(p.description)}</p>` : ""}
@@ -199,7 +199,7 @@ function openCart() {
 
   function total() { return cart.reduce((s, i) => s + i.subtotal, 0); }
   function paintCart() {
-    ov.innerHTML = `<div class="sheet" onclick="event.stopPropagation()">
+    ov.innerHTML = `<div class="sheet">
       <button class="x" onclick="document.getElementById('cartOverlay').remove();renderCustomer()"><svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>
       <h2>Giỏ hàng</h2>
       ${!cart.length ? `<p class="empty" style="padding:20px 0">Giỏ hàng đang trống.</p>` : cart.map((it) => `
@@ -213,7 +213,7 @@ function openCart() {
     </div>`;
   }
   function paintCheckout(errors = {}) {
-    ov.innerHTML = `<div class="sheet" onclick="event.stopPropagation()">
+    ov.innerHTML = `<div class="sheet">
       <button class="x" onclick="document.getElementById('cartOverlay').remove();renderCustomer()"><svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>
       <h2>Thông tin đặt hàng</h2>
       <div class="input-field"><svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><input id="ckName" placeholder="Họ tên" value="${esc(form.name)}"></div>
@@ -231,7 +231,7 @@ function openCart() {
     </div>`;
   }
   function paintDone() {
-    ov.innerHTML = `<div class="sheet" onclick="event.stopPropagation()">
+    ov.innerHTML = `<div class="sheet">
       <button class="x" onclick="document.getElementById('cartOverlay').remove();renderCustomer()"><svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>
       <div class="confirm-page">
         <h2>Cảm ơn ${esc(placed.customerName || form.name)}!</h2>
