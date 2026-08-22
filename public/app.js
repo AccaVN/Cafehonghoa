@@ -161,10 +161,18 @@ function renderGrid() {
 }
 
 /* ---- product customization sheet ---- */
-function openProduct(productId) {
+function openProduct(productId, editCartId = null) {
   const p = menu.products.find((x) => x.id === productId);
   const tops = menu.toppings.filter((t) => t.active && p.toppingIds.includes(t.id));
-  const state = { sizeId: p.sizes[0]?.id, sugar: menu.sugarLevels[1]?.name || menu.sugarLevels[0]?.name, ice: menu.iceLevels[2]?.name || menu.iceLevels[0]?.name, toppingIds: [], qty: 1, note: "" };
+  const existing = editCartId ? cart.find((i) => i.cartId === editCartId) : null;
+  const state = {
+    sizeId: existing?.sizeId || p.sizes[0]?.id,
+    sugar: existing?.sugar || menu.sugarLevels[1]?.name || menu.sugarLevels[0]?.name,
+    ice: existing?.ice || menu.iceLevels[2]?.name || menu.iceLevels[0]?.name,
+    toppingIds: existing ? [...existing.toppingIds] : [],
+    qty: existing?.quantity || 1,
+    note: existing?.note || ""
+  };
 
   const ov = document.createElement("div"); ov.className = "overlay"; ov.id = "productOverlay";
   function calcTotal() {
@@ -173,6 +181,8 @@ function openProduct(productId) {
     return { unit: (size?.price || 0) + topTotal, total: ((size?.price || 0) + topTotal) * state.qty };
   }
   function paint() {
+    const oldSheet = ov.querySelector(".sheet");
+    const oldScrollTop = oldSheet ? oldSheet.scrollTop : 0;
     const { unit, total } = calcTotal();
     ov.innerHTML = `<div class="sheet">
       <button class="x" onclick="document.getElementById('productOverlay').remove()"><svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>
@@ -199,6 +209,10 @@ function openProduct(productId) {
       </div>
     </div>`;
     ov.querySelector("#productNote").addEventListener("input", (e) => (state.note = e.target.value));
+    const newSheet = ov.querySelector(".sheet");
+    if (newSheet && oldSheet) {
+      requestAnimationFrame(() => { newSheet.scrollTop = oldScrollTop; });
+    }
   }
   ov.addEventListener("click", (e) => {
     if (e.target === ov) return ov.remove();
@@ -215,8 +229,23 @@ function openProduct(productId) {
       const size = p.sizes.find((s) => s.id === state.sizeId);
       const chosen = tops.filter((x) => state.toppingIds.includes(x.id));
       const { unit, total } = calcTotal();
-      cart.push({ cartId: "ci_" + Math.random().toString(36).slice(2), productId: p.id, sizeId: size.id, productName: p.name, sizeName: size.name, sizePrice: size.price, sugar: state.sugar, ice: state.ice, toppingIds: state.toppingIds, toppings: chosen, quantity: state.qty, note: state.note.trim(), unitPrice: unit, subtotal: total });
-      ov.remove(); renderCustomer(); toast("Đã thêm vào giỏ hàng.", "success");
+      const nextItem = {
+        cartId: editCartId || ("ci_" + Math.random().toString(36).slice(2)),
+        productId: p.id, sizeId: size.id, productName: p.name, sizeName: size.name, sizePrice: size.price,
+        sugar: state.sugar, ice: state.ice, toppingIds: [...state.toppingIds], toppings: chosen,
+        quantity: state.qty, note: state.note.trim(), unitPrice: unit, subtotal: total
+      };
+      if (editCartId) {
+        const idx = cart.findIndex((i) => i.cartId === editCartId);
+        if (idx >= 0) cart[idx] = nextItem;
+        ov.remove();
+        const cartOverlay = document.getElementById("cartOverlay");
+        if (cartOverlay) { cartOverlay.remove(); openCart(); } else { renderCustomer(); }
+        toast("Đã cập nhật món.", "success");
+      } else {
+        cart.push(nextItem);
+        ov.remove(); renderCustomer(); toast("Đã thêm vào giỏ hàng.", "success");
+      }
       return;
     }
     paint();
@@ -243,7 +272,10 @@ function openCart() {
           <div class="row1"><span>${esc(it.productName)}</span><button class="x" style="width:26px;height:26px" data-remove="${it.cartId}"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button></div>
           <div class="meta">Size ${esc(it.sizeName)} · ${esc(it.sugar)} · ${esc(it.ice)}${it.toppings.length ? " · " + it.toppings.map((t) => esc(t.name)).join(", ") : ""}</div>
           ${it.note ? `<div class="meta" style="color:#b9871f">Ghi chú: ${esc(it.note)}</div>` : ""}
-          <div class="row2"><div class="qty" style="padding:3px 8px;gap:8px"><button data-qty="-1" data-id="${it.cartId}">−</button><span>${it.quantity}</span><button data-qty="1" data-id="${it.cartId}">+</button></div><strong>${money(it.subtotal)}</strong></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px">
+            <button class="btn light" style="padding:6px 10px;font-size:12px" data-edit="${it.cartId}">Chỉnh sửa</button>
+            <div class="row2" style="margin-top:0;flex:1"><div class="qty" style="padding:3px 8px;gap:8px"><button data-qty="-1" data-id="${it.cartId}">−</button><span>${it.quantity}</span><button data-qty="1" data-id="${it.cartId}">+</button></div><strong>${money(it.subtotal)}</strong></div>
+          </div>
         </div>`).join("")}
       ${cart.length ? `<div class="total-row"><span>Tạm tính</span><span>${money(total())}</span></div><button class="btn orange" style="width:100%" data-act="checkout">Đặt hàng</button>` : ""}
     </div>`;
@@ -284,6 +316,12 @@ function openCart() {
     if (step === "cart") {
       const rm = e.target.closest("[data-remove]");
       if (rm) { cart = cart.filter((i) => i.cartId !== rm.dataset.remove); paintCart(); return; }
+      const editBtn = e.target.closest("[data-edit]");
+      if (editBtn) {
+        const item = cart.find((i) => i.cartId === editBtn.dataset.edit);
+        if (item) openProduct(item.productId, item.cartId);
+        return;
+      }
       const qtyBtn = e.target.closest("[data-qty]");
       if (qtyBtn) {
         const item = cart.find((i) => i.cartId === qtyBtn.dataset.id);
