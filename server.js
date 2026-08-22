@@ -69,21 +69,33 @@ app.post("/api/orders", h(async (req, res) => {
   if (!customerName || !String(customerName).trim()) return res.status(400).json({ error: "Vui lòng nhập tên khách hàng." });
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "Giỏ hàng đang trống." });
 
+  const inClause = (arr) => arr.map(() => "?").join(",");
+  const productIds = [...new Set(items.map((i) => i.productId).filter(Boolean))];
+  const sizeIds = [...new Set(items.map((i) => i.sizeId).filter(Boolean))];
+  const toppingIds = [...new Set(items.flatMap((i) => (Array.isArray(i.toppingIds) ? i.toppingIds : [])))];
+
+  const [products, sizes, toppingRows, allowedRows] = await Promise.all([
+    productIds.length ? all(`SELECT * FROM products WHERE id IN (${inClause(productIds)})`, productIds) : [],
+    sizeIds.length ? all(`SELECT id,size_name as name,price,product_id FROM product_sizes WHERE id IN (${inClause(sizeIds)})`, sizeIds) : [],
+    toppingIds.length ? all(`SELECT * FROM toppings WHERE id IN (${inClause(toppingIds)}) AND active=true`, toppingIds) : [],
+    productIds.length ? all(`SELECT product_id, topping_id FROM product_toppings WHERE product_id IN (${inClause(productIds)})`, productIds) : [],
+  ]);
+  const productById = Object.fromEntries(products.map((p) => [p.id, p]));
+  const sizeById = Object.fromEntries(sizes.map((s) => [s.id, s]));
+  const toppingById = Object.fromEntries(toppingRows.map((t) => [t.id, t]));
+  const allowedByProduct = {};
+  for (const r of allowedRows) (allowedByProduct[r.product_id] ||= new Set()).add(r.topping_id);
+
   const orderItems = [];
   let total = 0;
   for (const it of items) {
-    const product = await get("SELECT * FROM products WHERE id=?", [it.productId]);
+    const product = productById[it.productId];
     if (!product || product.status !== "active") return res.status(400).json({ error: `Món "${it.productId}" hiện không có sẵn.` });
-    const size = await get("SELECT id, size_name as name, price FROM product_sizes WHERE id=? AND product_id=?", [it.sizeId, it.productId]);
-    if (!size) return res.status(400).json({ error: `Size không hợp lệ cho món "${product.name}".` });
-    const allowedRows = await all("SELECT topping_id FROM product_toppings WHERE product_id=?", [it.productId]);
-    const allowedToppingIds = allowedRows.map((r) => r.topping_id);
-    const chosenToppingIds = Array.isArray(it.toppingIds) ? it.toppingIds.filter((id) => allowedToppingIds.includes(id)) : [];
-    const toppings = [];
-    for (const tid of chosenToppingIds) {
-      const t = await get("SELECT * FROM toppings WHERE id=? AND active=true", [tid]);
-      if (t) toppings.push(t);
-    }
+    const size = sizeById[it.sizeId];
+    if (!size || size.product_id !== it.productId) return res.status(400).json({ error: `Size không hợp lệ cho món "${product.name}".` });
+    const allowed = allowedByProduct[it.productId] || new Set();
+    const chosenToppingIds = Array.isArray(it.toppingIds) ? it.toppingIds.filter((id) => allowed.has(id) && toppingById[id]) : [];
+    const toppings = chosenToppingIds.map((id) => toppingById[id]);
     const qty = Math.max(1, parseInt(it.quantity) || 1);
     const toppingTotal = toppings.reduce((s, t) => s + t.price, 0);
     const subtotal = (size.price + toppingTotal) * qty;
@@ -101,15 +113,17 @@ app.post("/api/orders", h(async (req, res) => {
     "INSERT INTO orders(id,code,customer_name,phone,receive_type,table_or_address,note,total,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,now())",
     [orderId, code, String(customerName).trim(), (phone || "").trim(), receiveType || "Tại quán", (tableOrAddress || "").trim(), (note || "").trim(), total, "Mới"]
   );
-  for (const oi of orderItems) {
-    await run(
-      "INSERT INTO order_items(id,order_id,product_name,size_name,size_price,sugar,ice,quantity,note,subtotal) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      [oi.id, orderId, oi.productName, oi.sizeName, oi.sizePrice, oi.sugar, oi.ice, oi.quantity, oi.note, oi.subtotal]
-    );
-    for (const t of oi.toppings) {
-      await run("INSERT INTO order_item_toppings(order_item_id,topping_name,topping_price) VALUES (?,?,?)", [oi.id, t.name, t.price]);
-    }
+
+  const itemRows = orderItems.map(() => "(?,?,?,?,?,?,?,?,?,?)").join(",");
+  const itemParams = orderItems.flatMap((oi) => [oi.id, orderId, oi.productName, oi.sizeName, oi.sizePrice, oi.sugar, oi.ice, oi.quantity, oi.note, oi.subtotal]);
+  await run(`INSERT INTO order_items(id,order_id,product_name,size_name,size_price,sugar,ice,quantity,note,subtotal) VALUES ${itemRows}`, itemParams);
+
+  const toppingFlat = orderItems.flatMap((oi) => oi.toppings.map((t) => [oi.id, t.name, t.price]));
+  if (toppingFlat.length) {
+    const topRows = toppingFlat.map(() => "(?,?,?)").join(",");
+    await run(`INSERT INTO order_item_toppings(order_item_id,topping_name,topping_price) VALUES ${topRows}`, toppingFlat.flat());
   }
+
   res.status(201).json({ id: orderId, code, total, status: "Mới" });
 }));
 
