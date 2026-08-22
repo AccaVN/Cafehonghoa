@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Café Hồng Hoa — Đặt món trực tuyến</title>
+<meta name="description" content="Thực đơn điện tử Café Hồng Hoa: chọn món, tuỳ chỉnh size, đường, đá, topping và đặt hàng trực tuyến.">
+<link rel="icon" type="image/png" href="/assets/logo-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--o:#cb5d2a;--bg:#f7f4f1;--line:#eadfd6;--ink:#30251f;--muted:#766a63;--font-body:'Inter',Arial,sans-serif;--font-display:'Playfair Display',Georgia,serif}
+*{box-sizing:border-box}body{margin:0;font-family:var(--font-body);background:var(--bg);color:var(--ink)}
+button,input,select,textarea{font:inherit}
+.app{max-width:1400px;margin:auto;background:#fff;min-height:100vh}
+header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;padding:13px 28px;border-bottom:1px solid var(--line);background:#fff}
+.brand{font-weight:900;color:var(--o);white-space:nowrap;flex:1;display:flex;align-items:center;gap:10px}
+.brand img{height:34px;width:34px;border-radius:9px;object-fit:cover}
+.brand .brand-text{font-family:var(--font-display);font-size:20px;line-height:1.1}
+.brand .brand-text small{display:block;font-family:var(--font-body);font-weight:600;font-size:10.5px;letter-spacing:.6px;color:var(--muted);text-transform:uppercase}
+.btn{border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer;font-family:var(--font-body)}
+.orange{background:var(--o);color:#fff}.light{background:#f3ece7}.btn.danger{background:#fdecea;color:#b3261e}
+.btn-icon{background:#f3ece7;border:0;border-radius:50%;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink)}
+.icon{width:1.1em;height:1.1em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.hero{padding:28px 30px;background:linear-gradient(120deg,#fff1df,#fffaf5)}
+.hero h1{margin:0 0 5px;font-size:32px;font-family:var(--font-display);font-weight:700}
+.hero p{margin:0;color:var(--muted)}
+.cats{display:flex;gap:8px;overflow:auto;padding:13px 30px;border-bottom:1px solid var(--line)}
+.cat{border:0;background:#f5eee8;border-radius:20px;padding:9px 14px;white-space:nowrap;cursor:pointer}
+.cat.active{background:var(--o);color:#fff}
+main{padding:28px 30px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.hero h1{font-size:26px}}
+@media(max-width:560px){.grid{grid-template-columns:1fr;gap:14px}main{padding:20px 16px}.hero{padding:24px 18px}.cats{padding:12px 16px}}
+.card{border:1px solid var(--line);border-radius:18px;overflow:hidden;min-width:0;display:flex;flex-direction:column;background:#fff}
+.card.soldout{opacity:.6}
+.pic{aspect-ratio:1/1;background:linear-gradient(135deg,#f7e2cd,#fff8f1);display:flex;align-items:center;justify-content:center;font-size:46px;overflow:hidden;position:relative}
+.pic img{width:100%;height:100%;object-fit:cover}
+.pic .tag{position:absolute;top:8px;right:8px;background:#0008;color:#fff;font-size:10px;padding:3px 8px;border-radius:99px;font-weight:700}
+.info{padding:16px}
+.name{font-weight:700;font-size:18px;font-family:var(--font-display)}
+.desc{font-size:13px;color:var(--muted);min-height:34px;margin:6px 0}
+.foot{display:flex;align-items:center;justify-content:space-between;margin-top:auto}
+.price{font-weight:900;color:var(--o);font-size:14px}
+.add{background:var(--o);color:#fff;border:0;border-radius:10px;width:34px;height:34px;display:flex;align-items:center;justify-content:center}
+.add:disabled{background:#ccc}
+.empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:30px 0}
+.overlay{position:fixed;inset:0;background:#0007;z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:#fff;width:min(500px,100%);max-height:90vh;overflow:auto;border-radius:20px 20px 0 0;padding:20px}
+.sheet h2{font-family:var(--font-display);margin:4px 0 2px}
+.sheet .desc-full{color:var(--muted);font-size:13px;margin:0 0 6px}
+.x{border:0;border-radius:50%;width:34px;height:34px;background:#f3ece7;display:flex;align-items:center;justify-content:center;float:right}
+.field-group{margin:16px 0}
+.field-group legend{font-weight:700;font-size:13px;margin-bottom:8px}
+.field-group .hint{font-weight:400;color:var(--muted);font-size:11.5px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{border:1.5px solid var(--line);background:#fff;border-radius:11px;padding:9px 13px;cursor:pointer;font-size:13px}
+.opt.selected{border-color:var(--o);background:#fff1e4;color:#b84e00;font-weight:800}
+.check-row{display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);border-radius:11px;padding:9px 12px;cursor:pointer;font-size:13px;margin-bottom:7px}
+.check-row.selected{border-color:#7c8f5d;background:#eef1e7}
+.check-row em{margin-left:auto;font-style:normal;font-weight:700;color:var(--o)}
+textarea.note{width:100%;border:1.5px solid var(--line);border-radius:11px;padding:9px 12px;font-family:inherit;resize:vertical}
+.qty{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);border-radius:11px;padding:6px 10px}
+.qty button{width:26px;height:26px;border:0;border-radius:50%;background:#f1eae5;font-weight:900}
+.sheet-foot{display:flex;gap:10px;align-items:center;margin-top:18px}
+.sheet-foot .btn{flex:1;display:flex;align-items:center;justify-content:space-between}
+.cart-bar{position:fixed;left:16px;right:16px;bottom:16px;max-width:460px;margin:auto;background:var(--ink);color:#fff;border:0;border-radius:14px;padding:12px 16px;display:flex;gap:10px;align-items:center;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.25);z-index:30}
+.cart-bar span:first-child{background:#fff2;padding:4px 9px;border-radius:99px;font-size:12px;font-weight:700}
+.cart-bar span:nth-child(2){flex:1;text-align:left;font-weight:600;font-size:13px}
+.cart-item{border-bottom:1px solid var(--line);padding:12px 0}
+.cart-item .row1{display:flex;justify-content:space-between;font-weight:700;font-size:14px}
+.cart-item .meta{font-size:11.5px;color:var(--muted);margin-top:2px}
+.cart-item .row2{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.total-row{display:flex;justify-content:space-between;font-weight:800;font-size:15px;margin:14px 0}
+.input-field{display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);border-radius:11px;padding:10px 12px;margin-bottom:10px}
+.input-field input,.input-field textarea{border:0;outline:0;flex:1;font-size:13px;background:transparent}
+.error-text{color:#b3261e;font-size:11.5px;margin:-6px 0 8px}
+.confirm-page{text-align:center;padding:20px 10px}
+.confirm-code{font-size:26px;font-weight:900;letter-spacing:2px;color:var(--o);background:#fff1e4;padding:8px 20px;border-radius:12px;margin:12px 0}
+/* Admin */
+#loginBox{display:none;position:fixed;inset:0;background:#0008;z-index:100;align-items:center;justify-content:center;padding:20px}
+#loginBox .box{background:#fff;width:min(380px,100%);border-radius:18px;padding:24px;text-align:center}
+#loginBox input{width:100%;box-sizing:border-box;border:1.5px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}
+.admin{padding:24px 28px}
+.admin-header{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;background:var(--ink);color:#fff}
+.admin-header .brand{color:#fff}.admin-header .brand-text small{color:#e8d9d0}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.tabs button{border:0;background:#f3ece7;padding:9px 14px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;color:var(--ink)}
+.tabs button.active{background:var(--o);color:#fff}
+.panel{border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}
+.table{width:100%;border-collapse:collapse}
+.table th,.table td{border-bottom:1px solid var(--line);padding:9px;text-align:left;font-size:13px;vertical-align:top}
+.field{display:grid;gap:5px;margin:9px 0}
+.field label{font-size:12px;font-weight:700;color:var(--muted)}
+.field input,.field select,.field textarea{border:1.5px solid var(--line);padding:8px 10px;border-radius:9px;font-family:inherit}
+.row2c{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.notice{background:#fff3e6;padding:12px;border-radius:10px;margin-bottom:14px;font-size:13px}
+.badge{font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:99px;white-space:nowrap}
+.badge.s0{background:#fdecea;color:#b3261e}.badge.s1{background:#fff4de;color:#b9871f}.badge.s2{background:#e8f0e1;color:#4b5c2e}.badge.s3{background:#e4eef2;color:#2f6c86}.badge.sx{background:#eee;color:#888}
+.order-card{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.order-summary{width:100%;display:flex;gap:10px;align-items:center;padding:12px;border:0;background:transparent;cursor:pointer;text-align:left}
+.order-summary>div{flex:1;display:flex;flex-direction:column;min-width:0}
+.order-detail{padding:0 12px 14px;border-top:1px solid var(--line)}
+.status-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.status-pill{border:1.5px solid var(--line);background:#fff;border-radius:99px;padding:6px 12px;font-size:11.5px;font-weight:700;cursor:pointer}
+.status-pill.active{background:var(--ink);border-color:var(--ink);color:#fff}
+.toast-wrap{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:400;display:flex;flex-direction:column;gap:8px;align-items:center;width:min(420px,92vw)}
+.toast{background:#2c2422;color:#fff;padding:12px 18px;border-radius:12px;font-size:13.5px;box-shadow:0 8px 24px rgba(0,0,0,.2);width:100%}
+.toast.success{background:#2f5233}.toast.error{background:#7a2020}
+.confirm-overlay{position:fixed;inset:0;background:#0007;z-index:300;display:flex;align-items:center;justify-content:center;padding:20px}
+.confirm-box{background:#fff;width:min(380px,100%);border-radius:18px;padding:22px;text-align:center}
+.confirm-box h3{margin:0 0 8px;font-family:var(--font-display)}
+.confirm-box p{margin:0 0 16px;color:var(--muted);font-size:14px;white-space:pre-line}
+.confirm-box input{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:14px;text-align:center}
+.confirm-actions{display:flex;gap:10px}.confirm-actions .btn{flex:1}
+.hidden{display:none !important}
+</style></head>
+<body>
+<div id="toastWrap" class="toast-wrap"></div>
+
+<div id="loginBox"><div class="box">
+  <img src="/assets/logo-icon.png" alt="Hồng Hoa" style="width:64px;height:64px;border-radius:16px;margin-bottom:8px">
+  <h2 style="font-family:var(--font-display);margin:0 0 4px">Đăng nhập quản trị</h2>
+  <p style="color:var(--muted);font-size:13px">Café Hồng Hoa · Khu vực dành cho nhân viên</p>
+  <input id="loginUser" placeholder="Tài khoản" autocomplete="username">
+  <input id="loginPass" type="password" placeholder="Mật khẩu" autocomplete="current-password">
+  <p id="loginError" class="error-text"></p>
+  <div style="display:flex;gap:8px;margin-top:6px">
+    <button class="btn light" style="flex:1" onclick="closeLogin()">Huỷ</button>
+    <button class="btn orange" style="flex:1" onclick="loginAdmin()">Đăng nhập</button>
+  </div>
+</div></div>
+
+<div id="root" class="app"></div>
+
+<script src="app.js"></script>
+</body></html>
