@@ -155,6 +155,12 @@ app.delete("/api/orders/:id", requireRole("admin", "moderator"), h(async (req, r
   res.json({ ok: true });
 }));
 
+/** Xoá vĩnh viễn TOÀN BỘ đơn hàng — dùng để dọn dữ liệu test trước khi vận hành thật. Chỉ admin. */
+app.delete("/api/orders", requireRole("admin"), h(async (req, res) => {
+  const result = await run("DELETE FROM orders");
+  res.json({ ok: true, deleted: result.changes });
+}));
+
 /* ================= ADMIN: DANH MỤC ================= */
 app.post("/api/admin/categories", requireRole("admin", "moderator"), h(async (req, res) => {
   const name = (req.body?.name || "").trim();
