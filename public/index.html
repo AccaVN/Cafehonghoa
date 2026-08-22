@@ -109,6 +109,9 @@ textarea.note{width:100%;border:1.5px solid var(--line);border-radius:11px;paddi
 .order-summary>div{flex:1;display:flex;flex-direction:column;min-width:0}
 .order-detail{padding:0 12px 14px;border-top:1px solid var(--line)}
 .status-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.admin-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.btn-mini{border:1px solid var(--o);color:var(--o);background:transparent;border-radius:9px;padding:8px 12px;font-size:12.5px;font-weight:700;cursor:pointer}
+.btn-mini-solid{background:var(--o);color:#fff}
 .status-pill{border:1.5px solid var(--line);background:#fff;border-radius:99px;padding:6px 12px;font-size:11.5px;font-weight:700;cursor:pointer}
 .status-pill.active{background:var(--ink);border-color:var(--ink);color:#fff}
 .toast-wrap{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:400;display:flex;flex-direction:column;gap:8px;align-items:center;width:min(420px,92vw)}
@@ -121,6 +124,32 @@ textarea.note{width:100%;border:1.5px solid var(--line);border-radius:11px;paddi
 .confirm-box input{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:14px;text-align:center}
 .confirm-actions{display:flex;gap:10px}.confirm-actions .btn{flex:1}
 .hidden{display:none !important}
+#printArea{display:none}
+@media print{
+  body.printing .app{display:none}
+  body.printing #printArea{display:block}
+  @page{margin:8mm}
+}
+.bill{width:280px;margin:0 auto;font-family:'Courier New',monospace;color:#000}
+.bill h2{text-align:center;margin:0 0 2px;font-size:16px}
+.bill .bill-sub{text-align:center;font-size:10.5px;margin:0 0 8px}
+.bill hr{border:none;border-top:1px dashed #000;margin:6px 0}
+.bill-row{display:flex;justify-content:space-between;font-size:11.5px;margin:2px 0}
+.bill-table{width:100%;border-collapse:collapse;margin:6px 0;font-size:11px}
+.bill-table td{padding:3px 0;vertical-align:top}
+.bill-table td.qty{text-align:center;width:24px}
+.bill-table td.amt{text-align:right;white-space:nowrap}
+.bill-item-opts{font-size:10px;color:#333}
+.bill-total-row{display:flex;justify-content:space-between;font-size:15px;font-weight:900;margin-top:6px}
+.bill-thanks{text-align:center;margin-top:14px;font-size:11.5px}
+.labels-wrap{display:flex;flex-wrap:wrap;gap:3mm}
+.label{width:6.2cm;min-height:4cm;border:1px dashed #999;padding:7px 8px;box-sizing:border-box;font-family:Arial,sans-serif;page-break-inside:avoid}
+.label-code{font-weight:900;font-size:11px;letter-spacing:.5px}
+.label-name{font-weight:800;font-size:15px;margin:3px 0 2px;line-height:1.15}
+.label-size{font-size:12px;font-weight:700}
+.label-opts{font-size:11px;color:#333;margin-top:2px}
+.label-top{font-size:10.5px;color:#333}
+.label-note{font-size:10.5px;font-style:italic;margin-top:3px}
 </style></head>
 <body>
 <div id="toastWrap" class="toast-wrap"></div>
@@ -139,6 +168,8 @@ textarea.note{width:100%;border:1.5px solid var(--line);border-radius:11px;paddi
 </div></div>
 
 <div id="root" class="app"></div>
+<div id="printArea"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="app.js"></script>
 </body></html>

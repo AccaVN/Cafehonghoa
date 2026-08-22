@@ -557,19 +557,30 @@ async function deleteUser(id) {
 }
 
 /* ---- orders ---- */
-let openOrderId = null;
+let collapsedOrderIds = new Set(); // đơn nào có mặt trong này thì đang thu gọn — mặc định (không có mặt) là mở chi tiết
+let lastLoadedOrders = [];
 async function paintAdminOrders(el) {
   const orders = await api("GET", "/api/orders");
+  lastLoadedOrders = orders;
   const badgeClass = (s) => ({ "Mới": "s0", "Đang pha chế": "s1", "Hoàn tất": "s2", "Đã giao": "s3" }[s] || "sx");
-  el.innerHTML = `<h3 style="margin-top:0">Đơn hàng (${orders.length})</h3>
-  ${!orders.length ? `<p class="empty">Chưa có đơn hàng nào.</p>` : orders.map((o) => `
+  el.innerHTML = `
+  <div class="admin-toolbar" style="margin-bottom:14px">
+    <h3 style="margin:0">Đơn hàng (${orders.length})</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn-mini btn-mini-solid" onclick="exportOrdersExcel()">Xuất Excel chi tiết</button>
+      ${me.role === "admin" ? `<button class="btn-mini" style="border-color:#b3261e;color:#b3261e" onclick="deleteAllOrders()">Xoá tất cả đơn hàng</button>` : ""}
+    </div>
+  </div>
+  ${!orders.length ? `<p class="empty">Chưa có đơn hàng nào.</p>` : orders.map((o) => {
+    const collapsed = collapsedOrderIds.has(o.id);
+    return `
     <div class="order-card">
       <button class="order-summary" onclick="toggleOrder('${o.id}')">
         <div><strong>${esc(o.code)}</strong><span style="font-size:11px;color:var(--muted)">${new Date(o.created_at).toLocaleString("vi-VN")} · ${esc(o.customer_name)} · ${o.items.length} món</span></div>
         <span class="badge ${badgeClass(o.status)}">${esc(o.status)}</span>
         <strong>${money(o.total)}</strong>
       </button>
-      ${openOrderId === o.id ? `<div class="order-detail">
+      ${!collapsed ? `<div class="order-detail">
         ${o.items.map((it) => `<div style="padding:10px 0;border-bottom:1px dashed var(--line)">
           <div style="font-weight:700">${esc(it.product_name)} — Size ${esc(it.size_name)}</div>
           <div style="font-size:11.5px;color:var(--muted)">${esc(it.sugar)} · ${esc(it.ice)}${it.toppings.length ? " · " + it.toppings.map((t) => esc(t.name)).join(", ") : ""}${it.note ? " · Ghi chú: " + esc(it.note) : ""}</div>
@@ -581,12 +592,20 @@ async function paintAdminOrders(el) {
         <div class="total-row"><span>Tổng</span><span>${money(o.total)}</span></div>
         <div class="status-row">
           ${["Mới", "Đang pha chế", "Hoàn tất", "Đã giao"].map((s) => `<button class="status-pill ${o.status === s ? "active" : ""}" onclick="changeOrderStatus('${o.id}','${s}','${o.status}')">${s}</button>`).join("")}
+        </div>
+        <div class="status-row">
+          <button class="status-pill" onclick="printBill('${o.id}')">In bill</button>
+          <button class="status-pill" onclick="printLabels('${o.id}')">In tem pha chế</button>
           ${["admin", "moderator"].includes(me.role) && o.status !== "Đã xóa" ? `<button class="status-pill" style="border-color:#b3261e;color:#b3261e" onclick="deleteOrder('${o.id}')">Xoá đơn</button>` : ""}
         </div>
       </div>` : ""}
-    </div>`).join("")}`;
+    </div>`;
+  }).join("")}`;
 }
-function toggleOrder(id) { openOrderId = openOrderId === id ? null : id; paintAdminBody(); }
+function toggleOrder(id) {
+  if (collapsedOrderIds.has(id)) collapsedOrderIds.delete(id); else collapsedOrderIds.add(id);
+  paintAdminBody();
+}
 async function changeOrderStatus(id, next, current) {
   if (next === current) return;
   if (!(await showConfirm(`Đổi đơn sang "${next}"?`))) return;
@@ -595,6 +614,105 @@ async function changeOrderStatus(id, next, current) {
 async function deleteOrder(id) {
   if (!(await showConfirm("Đơn sẽ được giữ lại và chuyển trạng thái \"Đã xóa\".", { title: "Xoá đơn?", danger: true }))) return;
   try { await api("DELETE", "/api/orders/" + id); paintAdminBody(); toast("Đã xoá đơn.", "success"); } catch (e) { toast(e.message, "error"); }
+}
+async function deleteAllOrders() {
+  if (!(await showConfirm("Toàn bộ đơn hàng (kể cả đơn test) sẽ bị xoá VĨNH VIỄN, không thể khôi phục.", { title: "Xoá tất cả đơn hàng?", okLabel: "Xoá vĩnh viễn", danger: true }))) return;
+  try {
+    await api("DELETE", "/api/orders");
+    collapsedOrderIds = new Set();
+    paintAdminBody();
+    toast("Đã xoá toàn bộ đơn hàng.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+
+/* ---- Xuất Excel chi tiết ---- */
+function exportOrdersExcel() {
+  const orders = lastLoadedOrders;
+  if (!orders.length) return toast("Chưa có đơn hàng để xuất.", "error");
+  const rows = [];
+  for (const o of orders) {
+    if (!o.items.length) {
+      rows.push({ "Mã đơn": o.code, "Thời gian": new Date(o.created_at).toLocaleString("vi-VN"), "Khách hàng": o.customer_name, "SĐT": o.phone, "Hình thức": o.receive_type, "Bàn/Địa chỉ": o.table_or_address, "Món": "", "Size": "", "Đường": "", "Đá": "", "Topping": "", "SL": "", "Thành tiền món": "", "Ghi chú món": "", "Trạng thái đơn": o.status, "Tổng đơn": o.total });
+      continue;
+    }
+    o.items.forEach((it, idx) => {
+      rows.push({
+        "Mã đơn": idx === 0 ? o.code : "",
+        "Thời gian": idx === 0 ? new Date(o.created_at).toLocaleString("vi-VN") : "",
+        "Khách hàng": idx === 0 ? o.customer_name : "",
+        "SĐT": idx === 0 ? o.phone : "",
+        "Hình thức": idx === 0 ? o.receive_type : "",
+        "Bàn/Địa chỉ": idx === 0 ? o.table_or_address : "",
+        "Món": it.product_name, "Size": it.size_name, "Đường": it.sugar, "Đá": it.ice,
+        "Topping": it.toppings.map((t) => t.name).join(", "), "SL": it.quantity, "Thành tiền món": it.subtotal,
+        "Ghi chú món": it.note,
+        "Trạng thái đơn": idx === 0 ? o.status : "",
+        "Tổng đơn": idx === 0 ? o.total : "",
+      });
+    });
+  }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [{ wch: 10 }, { wch: 17 }, { wch: 16 }, { wch: 13 }, { wch: 10 }, { wch: 22 }, { wch: 24 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 5 }, { wch: 13 }, { wch: 18 }, { wch: 12 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Đơn hàng");
+  XLSX.writeFile(wb, `don-hang-hong-hoa-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+/* ---- In bill / in tem ---- */
+function printHtml(html) {
+  const area = document.getElementById("printArea");
+  area.innerHTML = html;
+  document.body.classList.add("printing");
+  function cleanup() { document.body.classList.remove("printing"); window.removeEventListener("afterprint", cleanup); }
+  window.addEventListener("afterprint", cleanup);
+  window.print();
+  setTimeout(cleanup, 3000);
+}
+function findOrder(id) { return lastLoadedOrders.find((o) => o.id === id); }
+function printBill(id) {
+  const o = findOrder(id);
+  if (!o) return;
+  const html = `<div class="bill">
+    <h2>Café Hồng Hoa</h2>
+    <p class="bill-sub">${esc(STORE_INFO.address)}<br>ĐT: ${esc(STORE_INFO.phoneDisplay)}</p>
+    <hr>
+    <div class="bill-row"><span>Mã đơn</span><strong>${esc(o.code)}</strong></div>
+    <div class="bill-row"><span>Thời gian</span><span>${new Date(o.created_at).toLocaleString("vi-VN")}</span></div>
+    <div class="bill-row"><span>Khách hàng</span><span>${esc(o.customer_name)}</span></div>
+    <div class="bill-row"><span>Hình thức</span><span>${esc(o.receive_type)}${o.table_or_address ? " · " + esc(o.table_or_address) : ""}</span></div>
+    <hr>
+    <table class="bill-table">
+      <tr><td><b>Món</b></td><td class="qty"><b>SL</b></td><td class="amt"><b>T.Tiền</b></td></tr>
+      ${o.items.map((it) => `
+      <tr>
+        <td>${esc(it.product_name)} (${esc(it.size_name)})${it.toppings.length ? `<div class="bill-item-opts">+ ${it.toppings.map((t) => esc(t.name)).join(", ")}</div>` : ""}${it.sugar || it.ice ? `<div class="bill-item-opts">${esc(it.sugar)} · ${esc(it.ice)}</div>` : ""}</td>
+        <td class="qty">${it.quantity}</td>
+        <td class="amt">${money(it.subtotal)}</td>
+      </tr>`).join("")}
+    </table>
+    <hr>
+    <div class="bill-total-row"><span>Tổng cộng</span><span>${money(o.total)}</span></div>
+    <p class="bill-thanks">Cảm ơn quý khách — hẹn gặp lại!</p>
+  </div>`;
+  printHtml(html);
+}
+function printLabels(id) {
+  const o = findOrder(id);
+  if (!o) return;
+  const labels = [];
+  for (const it of o.items) {
+    for (let i = 0; i < it.quantity; i++) {
+      labels.push(`<div class="label">
+        <div class="label-code">${esc(o.code)} · ${esc(o.receive_type)}${o.table_or_address ? " " + esc(o.table_or_address) : ""}</div>
+        <div class="label-name">${esc(it.product_name)}</div>
+        <div class="label-size">Size ${esc(it.size_name)}</div>
+        <div class="label-opts">${esc(it.sugar)} · ${esc(it.ice)}</div>
+        ${it.toppings.length ? `<div class="label-top">+ ${it.toppings.map((t) => esc(t.name)).join(", ")}</div>` : ""}
+        ${it.note ? `<div class="label-note">Ghi chú: ${esc(it.note)}</div>` : ""}
+      </div>`);
+    }
+  }
+  printHtml(`<div class="labels-wrap">${labels.join("")}</div>`);
 }
 
 boot();
