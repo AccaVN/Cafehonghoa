@@ -1,4 +1,18 @@
 /* ================= state ================= */
+const ALL_CAT = "__all__";
+const STORE_INFO = {
+  address: "Nhà thuốc tây Hồng Hoa (cũ) 139/A quốc lộ 57B, khu phố 1, Xã Bình Đại, Tỉnh Vĩnh Long (Bến Tre cũ)",
+  hoursText: "07:00 - 21:00",
+  openHour: 7, openMinute: 0, closeHour: 21, closeMinute: 0,
+  phoneDisplay: "0909.777.621", phoneTel: "0909777621",
+};
+function isStoreOpenNow() {
+  const now = new Date();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const open = STORE_INFO.openHour * 60 + STORE_INFO.openMinute;
+  const close = STORE_INFO.closeHour * 60 + STORE_INFO.closeMinute;
+  return mins >= open && mins < close;
+}
 let menu = null;      // {categories, products, toppings, sugarLevels, iceLevels}
 let cart = [];         // local cart, not persisted server-side until checkout
 let me = null;         // {username, role} | null
@@ -78,7 +92,7 @@ async function boot() {
   root.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted)">Đang tải thực đơn Café Hồng Hoa…</div>`;
   try {
     [menu, me] = await Promise.all([api("GET", "/api/menu"), api("GET", "/api/auth/me")]);
-    activeCategory = menu.categories[0]?.id;
+    activeCategory = ALL_CAT;
     render();
   } catch (e) {
     root.innerHTML = `<div style="padding:60px;text-align:center;color:#b3261e">Không kết nối được tới máy chủ. Vui lòng kiểm tra server đang chạy.</div>`;
@@ -99,9 +113,21 @@ function renderCustomer() {
     <button class="btn-icon" title="Trang quản trị" onclick="openLogin()"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     <button class="btn orange" onclick="openCart()" style="display:flex;align-items:center;gap:6px"><svg class="icon" viewBox="0 0 24 24"><path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6 5 2H2"/><circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="20" r="1.4" fill="currentColor" stroke="none"/></svg> ${cartCount}</button>
   </header>
-  <div class="hero"><h1>Thực đơn Hồng Hoa</h1><p>Chọn món, tuỳ chỉnh size / đường / đá / topping và đặt hàng ngay.</p></div>
-  <nav class="cats">${menu.categories.map((c) => `<button class="cat ${c.id === activeCategory ? "active" : ""}" onclick="setCategory('${c.id}')">${esc(c.name)}</button>`).join("")}</nav>
-  <main class="grid" id="grid"></main>
+  <div class="hero">
+    <h1>Café Hồng Hoa</h1>
+    <p class="hero-tag">Chọn món · Tùy chỉnh đường, đá và topping theo ý bạn</p>
+    <div class="hero-info">
+      <div class="hero-info-row"><strong>Trạng thái:</strong> <span class="${isStoreOpenNow() ? "status-open" : "status-closed"}">${isStoreOpenNow() ? "Đang mở cửa" : "Đang đóng cửa"}</span></div>
+      <div class="hero-info-row"><strong>Địa chỉ:</strong> ${esc(STORE_INFO.address)}</div>
+      <div class="hero-info-row"><strong>Giờ mở cửa:</strong> ${esc(STORE_INFO.hoursText)}</div>
+      <div class="hero-info-row"><strong>SĐT:</strong> <a href="tel:${STORE_INFO.phoneTel}">${esc(STORE_INFO.phoneDisplay)}</a></div>
+    </div>
+  </div>
+  <nav class="cats">
+    <button class="cat ${activeCategory === ALL_CAT ? "active" : ""}" onclick="setCategory('${ALL_CAT}')">Tất cả</button>
+    ${menu.categories.map((c) => `<button class="cat ${c.id === activeCategory ? "active" : ""}" onclick="setCategory('${c.id}')">${esc(c.name)}</button>`).join("")}
+  </nav>
+  <main id="grid"></main>
   ${cart.length ? `<button class="cart-bar" onclick="openCart()"><span>${cartCount} món</span><span>Xem giỏ hàng</span><strong>${money(cartTotal)}</strong></button>` : ""}
   `;
   renderGrid();
@@ -109,9 +135,7 @@ function renderCustomer() {
 function setCategory(id) { activeCategory = id; renderCustomer(); }
 function renderGrid() {
   const grid = document.getElementById("grid");
-  const items = menu.products.filter((p) => p.categoryId === activeCategory && p.status !== "hidden");
-  if (!items.length) { grid.innerHTML = `<p class="empty">Danh mục này chưa có món.</p>`; return; }
-  grid.innerHTML = items.map((p) => {
+  function cardHtml(p) {
     const from = Math.min(...p.sizes.map((s) => s.price));
     const soldout = p.status === "soldout";
     return `<article class="card ${soldout ? "soldout" : ""}">
@@ -122,7 +146,20 @@ function renderGrid() {
         <div class="foot"><span class="price">Giá từ ${money(from)}</span>
         <button class="add" ${soldout ? "disabled" : ""} onclick="openProduct('${p.id}')"><svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>
       </div></article>`;
-  }).join("");
+  }
+  if (activeCategory === ALL_CAT) {
+    const sections = menu.categories
+      .map((c) => ({ c, items: menu.products.filter((p) => p.categoryId === c.id && p.status !== "hidden") }))
+      .filter((s) => s.items.length);
+    if (!sections.length) { grid.innerHTML = `<p class="empty">Chưa có món nào.</p>`; return; }
+    grid.innerHTML = sections
+      .map((s) => `<section class="cat-section"><h2 class="cat-section-title">${esc(s.c.name)}</h2><div class="grid">${s.items.map(cardHtml).join("")}</div></section>`)
+      .join("");
+    return;
+  }
+  const items = menu.products.filter((p) => p.categoryId === activeCategory && p.status !== "hidden");
+  if (!items.length) { grid.innerHTML = `<p class="empty">Danh mục này chưa có món.</p>`; return; }
+  grid.innerHTML = `<div class="grid">${items.map(cardHtml).join("")}</div>`;
 }
 
 /* ---- product customization sheet ---- */

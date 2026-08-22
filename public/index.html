@@ -12,10 +12,10 @@
 button,input,select,textarea{font:inherit}
 .app{max-width:1400px;margin:auto;background:#fff;min-height:100vh}
 header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;padding:13px 28px;border-bottom:1px solid var(--line);background:#fff}
-.brand{font-weight:900;color:var(--o);white-space:nowrap;flex:1;display:flex;align-items:center;gap:10px}
-.brand img{height:34px;width:34px;border-radius:9px;object-fit:cover}
-.brand .brand-text{font-family:var(--font-display);font-size:20px;line-height:1.1}
-.brand .brand-text small{display:block;font-family:var(--font-body);font-weight:600;font-size:10.5px;letter-spacing:.6px;color:var(--muted);text-transform:uppercase}
+.brand{font-weight:900;color:var(--o);white-space:nowrap;flex:1;display:flex;align-items:center;gap:12px}
+.brand img{height:48px;width:48px;border-radius:11px;object-fit:cover}
+.brand .brand-text{font-family:var(--font-display);font-size:25px;line-height:1.15}
+.brand .brand-text small{display:block;font-family:var(--font-body);font-weight:600;font-size:12px;letter-spacing:.6px;color:var(--muted);text-transform:uppercase}
 .btn{border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer;font-family:var(--font-body)}
 .orange{background:var(--o);color:#fff}.light{background:#f3ece7}.btn.danger{background:#fdecea;color:#b3261e}
 .btn-icon{background:#f3ece7;border:0;border-radius:50%;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink)}
@@ -23,6 +23,15 @@ header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;
 .hero{padding:28px 30px;background:linear-gradient(120deg,#fff1df,#fffaf5)}
 .hero h1{margin:0 0 5px;font-size:32px;font-family:var(--font-display);font-weight:700}
 .hero p{margin:0;color:var(--muted)}
+.hero-tag{margin:0 0 14px !important}
+.hero-info{display:flex;flex-direction:column;gap:5px;font-size:13.5px}
+.hero-info-row strong{font-weight:700;color:var(--ink);margin-right:5px}
+.hero-info-row a{color:var(--o);font-weight:700;text-decoration:none}
+.status-open{color:#2f6c3e;font-weight:800}
+.status-closed{color:#b3261e;font-weight:800}
+.cat-section{margin-bottom:26px}
+.cat-section:last-child{margin-bottom:0}
+.cat-section-title{font-family:var(--font-display);font-size:20px;font-weight:700;margin:0 0 14px;color:var(--ink)}
 .cats{display:flex;gap:8px;overflow:auto;padding:13px 30px;border-bottom:1px solid var(--line)}
 .cat{border:0;background:#f5eee8;border-radius:20px;padding:9px 14px;white-space:nowrap;cursor:pointer}
 .cat.active{background:var(--o);color:#fff}
