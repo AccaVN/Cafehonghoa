@@ -150,6 +150,38 @@ textarea.note{width:100%;border:1.5px solid var(--line);border-radius:11px;paddi
 .label-opts{font-size:11px;color:#333;margin-top:2px}
 .label-top{font-size:10.5px;color:#333}
 .label-note{font-size:10.5px;font-style:italic;margin-top:3px}
+
+/* Mobile menu layout — closely matches the reference ordering screen */
+@media(max-width:560px){
+  body{background:#fff}
+  .app{width:100%;max-width:none;background:#fff}
+  header{height:68px;padding:10px 16px;gap:8px;position:sticky;top:0}
+  .brand{gap:8px;min-width:0}
+  .brand img{width:40px;height:40px;border-radius:10px}
+  .brand .brand-text{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand .brand-text small{font-size:9px;letter-spacing:.4px}
+  header>.btn-icon{width:38px;height:38px}
+  header>.btn.orange{height:38px;padding:8px 11px;font-size:12px}
+  .hero{display:none}
+  .cats{padding:12px 16px;border-bottom:1px solid #eee;gap:8px;background:#fff;position:sticky;top:68px;z-index:4}
+  .cat{background:#fff;border:1px solid #d9d9d9;border-radius:22px;padding:9px 15px;font-size:14px;color:#333}
+  .cat.active{background:#fff;color:#333;border-color:#bdbdbd}
+  main{padding:24px 14px 110px}
+  .cat-section{margin-bottom:26px}
+  .cat-section-title{font-family:var(--font-body);font-size:25px;font-weight:800;margin:0 0 18px;color:#111}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 14px}
+  .card{min-width:0}
+  .pic{aspect-ratio:1/1;border-radius:18px;background:#eef5f6;overflow:hidden}
+  .pic img{border-radius:18px}
+  .pic .tag{top:8px;left:8px}
+  .info{padding:9px 1px 0;min-width:0}
+  .name{font-size:15px;line-height:1.25;font-weight:500;min-height:38px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:#222}
+  .foot{margin-top:3px;display:flex;align-items:center;justify-content:space-between;min-height:40px;gap:8px}
+  .price{font-size:19px;font-weight:800;color:#111;white-space:nowrap}
+  .add{position:static;flex:0 0 auto;width:38px;height:38px;border-radius:50%;box-shadow:none;background:#0aa35a}
+  .add .icon{width:20px;height:20px;stroke-width:2.6}
+  .cart-bar{left:10px;right:10px;bottom:10px;border-radius:16px;padding:13px 14px}
+}
 </style></head>
 <body>
 <div id="toastWrap" class="toast-wrap"></div>
