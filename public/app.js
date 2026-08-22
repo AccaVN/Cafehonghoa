@@ -194,6 +194,7 @@ function openProduct(productId) {
 function openCart() {
   const ov = document.createElement("div"); ov.className = "overlay"; ov.id = "cartOverlay";
   let step = "cart";
+  let submitting = false;
   const form = { name: "", phone: "", receiveType: "Tại quán", tableOrAddress: "", note: "" };
   let placed = null;
 
@@ -227,7 +228,7 @@ function openCart() {
       ${errors.addr ? `<div class="error-text">${errors.addr}</div>` : ""}
       <div class="input-field" style="align-items:flex-start"><svg class="icon" viewBox="0 0 24 24" style="margin-top:3px"><path d="M4 4h16v12H5.17L4 17.17V4z"/></svg><textarea class="note" id="ckNote" rows="2" placeholder="Ghi chú đơn hàng">${esc(form.note)}</textarea></div>
       <div class="total-row"><span>Tổng thanh toán</span><span>${money(total())}</span></div>
-      <div class="sheet-foot"><button class="btn light" data-act="back">Quay lại</button><button class="btn orange" data-act="submit">Xác nhận đặt hàng</button></div>
+      <div class="sheet-foot"><button class="btn light" data-act="back" ${submitting ? "disabled" : ""}>Quay lại</button><button class="btn orange" data-act="submit" ${submitting ? "disabled" : ""}>${submitting ? "Đang đặt hàng…" : "Xác nhận đặt hàng"}</button></div>
     </div>`;
   }
   function paintDone() {
@@ -261,6 +262,7 @@ function openCart() {
       if (recv) { form.receiveType = recv.dataset.recv; form.tableOrAddress = document.getElementById("ckAddr").value; form.name = document.getElementById("ckName").value; form.phone = document.getElementById("ckPhone").value; form.note = document.getElementById("ckNote").value; paintCheckout(); return; }
       if (e.target.closest("[data-act='back']")) { step = "cart"; paintCart(); return; }
       if (e.target.closest("[data-act='submit']")) {
+        if (submitting) return;
         form.name = document.getElementById("ckName").value.trim();
         form.phone = document.getElementById("ckPhone").value.trim();
         form.tableOrAddress = document.getElementById("ckAddr").value.trim();
@@ -273,12 +275,18 @@ function openCart() {
           if (!form.tableOrAddress) errors.addr = "Vui lòng nhập địa chỉ giao hàng";
         } else if (form.phone && !validVNPhone(form.phone)) errors.phone = "Số điện thoại không hợp lệ";
         if (Object.keys(errors).length) { paintCheckout(errors); return; }
+        submitting = true;
+        paintCheckout();
         try {
           const payload = { customerName: form.name, phone: form.phone, receiveType: form.receiveType, tableOrAddress: form.tableOrAddress, note: form.note, items: cart.map((i) => ({ productId: i.productId, sizeId: i.sizeId, toppingIds: i.toppingIds, sugar: i.sugar, ice: i.ice, quantity: i.quantity, note: i.note })) };
           placed = await api("POST", "/api/orders", payload);
           cart = [];
           step = "done"; paintDone();
-        } catch (err) { toast(err.message, "error"); }
+        } catch (err) {
+          submitting = false;
+          toast(err.message, "error");
+          paintCheckout();
+        }
       }
     }
   });
