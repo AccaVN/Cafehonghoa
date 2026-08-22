@@ -139,12 +139,10 @@ function renderGrid() {
     const from = Math.min(...p.sizes.map((s) => s.price));
     const soldout = p.status === "soldout";
     return `<article class="card ${soldout ? "soldout" : ""}">
-      <div class="pic">${p.image ? `<img src="${esc(p.image)}">` : "☕"}${soldout ? `<span class="tag">Hết món</span>` : ""}</div>
+      <div class="pic">${p.image ? `<img src="${esc(p.image)}">` : "☕"}${soldout ? `<span class="tag">Hết món</span>` : `<button class="add" onclick="openProduct('${p.id}')"><svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>`}</div>
       <div class="info">
         <div class="name">${esc(p.name)}</div>
-        <div class="desc">${esc(p.description || "")}</div>
-        <div class="foot"><span class="price">Giá từ ${money(from)}</span>
-        <button class="add" ${soldout ? "disabled" : ""} onclick="openProduct('${p.id}')"><svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>
+        <div class="foot"><span class="price">${money(from)}</span></div>
       </div></article>`;
   }
   if (activeCategory === ALL_CAT) {
