@@ -19,6 +19,8 @@ let me = null;         // {username, role} | null
 let activeCategory = null;
 let view = "customer"; // customer | admin
 let adminTab_ = "products";
+// Số bàn lấy từ URL khi khách quét mã QR dán tại bàn, ví dụ: /?table=3
+const TABLE_FROM_URL = new URLSearchParams(location.search).get("table");
 
 const money = (n) => Number(n || 0).toLocaleString("vi-VN") + "đ";
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -118,6 +120,7 @@ function renderCustomer() {
     <p class="hero-tag">Chọn món · Tùy chỉnh đường, đá và topping theo ý bạn</p>
     <div class="hero-info">
       <div class="hero-info-row"><strong>Trạng thái:</strong> <span class="${isStoreOpenNow() ? "status-open" : "status-closed"}">${isStoreOpenNow() ? "Đang mở cửa" : "Đang đóng cửa"}</span></div>
+      ${TABLE_FROM_URL ? `<div class="hero-info-row"><strong>Bàn của bạn:</strong> Bàn ${esc(TABLE_FROM_URL)}</div>` : ""}
       <div class="hero-info-row"><strong>Địa chỉ:</strong> ${esc(STORE_INFO.address)}</div>
       <div class="hero-info-row"><strong>Giờ mở cửa:</strong> ${esc(STORE_INFO.hoursText)}</div>
       <div class="hero-info-row"><strong>SĐT:</strong> <a href="tel:${STORE_INFO.phoneTel}">${esc(STORE_INFO.phoneDisplay)}</a></div>
@@ -259,7 +262,7 @@ function openCart() {
   const ov = document.createElement("div"); ov.className = "overlay"; ov.id = "cartOverlay";
   let step = "cart";
   let submitting = false;
-  const form = { name: "", phone: "", receiveType: "Tại quán", tableOrAddress: "", note: "" };
+  const form = { name: "", phone: "", receiveType: "Tại quán", tableOrAddress: TABLE_FROM_URL ? "Bàn " + TABLE_FROM_URL : "", note: "" };
   let placed = null;
 
   function total() { return cart.reduce((s, i) => s + i.subtotal, 0); }
