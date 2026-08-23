@@ -124,12 +124,9 @@ textarea.note{width:100%;border:1.5px solid var(--line);border-radius:11px;paddi
 .confirm-box input{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:14px;text-align:center}
 .confirm-actions{display:flex;gap:10px}.confirm-actions .btn{flex:1}
 .hidden{display:none !important}
-#printArea{display:none}
-@media print{
-  body.printing .app{display:none}
-  body.printing #printArea{display:block}
-  @page{margin:8mm}
-}
+/* Lưu ý: việc in bill/tem giờ dùng iframe riêng (xem printHtml() trong app.js),
+   không còn dựa vào #printArea + class "printing" trên trang chính nữa —
+   cách cũ khiến Chrome trên iPhone in nhầm trang đang hiển thị thay vì in bill. */
 .bill{width:280px;margin:0 auto;font-family:'Courier New',monospace;color:#000}
 .bill h2{text-align:center;margin:0 0 2px;font-size:16px}
 .bill .bill-sub{text-align:center;font-size:10.5px;margin:0 0 8px}
@@ -231,7 +228,6 @@ textarea.note{width:100%;border:1.5px solid var(--line);border-radius:11px;paddi
 </div></div>
 
 <div id="root" class="app"></div>
-<div id="printArea"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="app.js"></script>

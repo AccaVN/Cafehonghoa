@@ -744,21 +744,69 @@ function exportOrdersExcel() {
 }
 
 /* ---- In bill / in tem ---- */
+// Dùng iframe ẩn riêng để in, KHÔNG ẩn/hiện nội dung trên chính trang đang mở.
+// Lý do: trên iPhone dùng Chrome (và một số trình duyệt iOS khác), lệnh window.print()
+// gọi trên trang chính có thể in theo đúng những gì đang hiển thị trên màn hình tại thời điểm
+// bấm nút, thay vì áp dụng lại CSS @media print cho nội dung vừa được JS bơm vào #printArea.
+// -> Kết quả là nó in nhầm trang quản lý đơn thay vì in bill.
+// In qua iframe độc lập giúp trình duyệt luôn in đúng nội dung của iframe đó.
+const PRINT_CSS = `
+  *{box-sizing:border-box}
+  body{margin:0;padding:10px;color:#000;font-family:Arial,sans-serif}
+  .bill{width:280px;margin:0 auto;font-family:'Courier New',monospace;color:#000}
+  .bill h2{text-align:center;margin:0 0 2px;font-size:16px}
+  .bill .bill-sub{text-align:center;font-size:10.5px;margin:0 0 8px}
+  .bill hr{border:none;border-top:1px dashed #000;margin:6px 0}
+  .bill-row{display:flex;justify-content:space-between;font-size:11.5px;margin:2px 0}
+  .bill-table{width:100%;border-collapse:collapse;margin:6px 0;font-size:11px}
+  .bill-table td{padding:3px 0;vertical-align:top}
+  .bill-table td.qty{text-align:center;width:24px}
+  .bill-table td.amt{text-align:right;white-space:nowrap}
+  .bill-item-opts{font-size:10px;color:#333}
+  .bill-total-row{display:flex;justify-content:space-between;font-size:15px;font-weight:900;margin-top:6px}
+  .bill-thanks{text-align:center;margin-top:14px;font-size:11.5px}
+  .labels-wrap{display:flex;flex-wrap:wrap;gap:3mm}
+  .label{width:6.2cm;min-height:4cm;border:1px dashed #999;padding:7px 8px;box-sizing:border-box;font-family:Arial,sans-serif;page-break-inside:avoid}
+  .label-code{font-weight:900;font-size:11px;letter-spacing:.5px}
+  .label-name{font-weight:800;font-size:15px;margin:3px 0 2px;line-height:1.15}
+  .label-size{font-size:12px;font-weight:700}
+  .label-opts{font-size:11px;color:#333;margin-top:2px}
+  .label-top{font-size:10.5px;color:#333}
+  .label-note{font-size:10.5px;font-style:italic;margin-top:3px}
+  @page{margin:8mm}
+`;
 function printHtml(html) {
-  const area = document.getElementById("printArea");
-  area.innerHTML = html;
-  document.body.classList.add("printing");
-  function cleanup() { document.body.classList.remove("printing"); window.removeEventListener("afterprint", cleanup); }
-  window.addEventListener("afterprint", cleanup);
-  // Trên điện thoại (đặc biệt iOS/Android), gọi window.print() ngay sau khi vừa đổi nội dung/CSS
-  // có thể in ra trang trắng vì trình duyệt chưa kịp vẽ lại layout mới (#printArea trước đó display:none).
-  // Đợi qua 2 khung hình (double requestAnimationFrame) để chắc chắn đã có 1 lần paint trước khi in.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      window.print();
-      setTimeout(cleanup, 3000);
-    });
-  });
+  const old = document.getElementById("printFrame");
+  if (old) old.remove();
+  const iframe = document.createElement("iframe");
+  iframe.id = "printFrame";
+  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>In</title><style>${PRINT_CSS}</style></head><body>${html}</body></html>`);
+  doc.close();
+
+  function cleanup() { setTimeout(() => { if (iframe.parentNode) iframe.remove(); }, 500); }
+
+  let printed = false;
+  function triggerPrint() {
+    if (printed) return;
+    printed = true;
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.addEventListener("afterprint", cleanup, { once: true });
+      iframe.contentWindow.print();
+    } catch (e) { cleanup(); }
+    // Dự phòng: nếu trình duyệt (một số bản Chrome iOS) không bắn afterprint, vẫn tự dọn sau vài giây.
+    setTimeout(cleanup, 5000);
+  }
+
+  // Đợi iframe load xong nội dung + qua 1 khung hình để chắc chắn đã render trước khi in.
+  iframe.onload = () => requestAnimationFrame(() => requestAnimationFrame(triggerPrint));
+  // Phòng trường hợp onload không bắn (một số trình duyệt với doc.write đồng bộ).
+  setTimeout(triggerPrint, 300);
 }
 function findOrder(id) { return lastLoadedOrders.find((o) => o.id === id); }
 function printBill(id) {
