@@ -546,13 +546,28 @@ function paintAdminSizes(el) {
   el.innerHTML = `<div class="panel">
     <h3 style="margin-top:0">Quản lý Size (${menu.sizeCatalog.length})</h3>
     <p style="color:var(--muted);font-size:12.5px;margin-top:0">Khai báo các loại size (VD: Nhỏ, Vừa, Lớn) một lần, rồi chọn ở tab "Món" khi thêm size cho từng món — không cần gõ lại tên size.</p>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.sizeCatalog.map((s) => `<span class="opt selected" style="display:flex;gap:8px">${esc(s.name)}<button onclick="removeSize('${s.id}')" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("") || `<p class="empty" style="padding:0">Chưa có size nào.</p>`}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.sizeCatalog.map((s) => `<span class="opt selected" style="display:flex;align-items:center;gap:8px">${esc(s.name)}<button onclick="editSize('${s.id}', ${JSON.stringify(s.name)})" title="Sửa tên size" style="border:0;background:none;cursor:pointer;font-weight:900">✎</button><button onclick="removeSize('${s.id}')" title="Xoá size" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("") || `<p class="empty" style="padding:0">Chưa có size nào.</p>`}</div>
     <div style="display:flex;gap:8px"><input id="newSize" placeholder="Tên size mới (VD: Lớn)"><button class="btn orange" onclick="addSize()">+ Thêm</button></div>
   </div>`;
 }
 async function addSize() {
   const input = document.getElementById("newSize"); const name = input.value.trim(); if (!name) return;
   try { await api("POST", "/api/admin/sizes", { name }); await refreshMenu(); renderAdmin(); toast("Đã thêm size.", "success"); } catch (e) { toast(e.message, "error"); }
+}
+async function editSize(id, currentName) {
+  const name = await showPrompt("Nhập tên mới cho size.", {
+    title: "Sửa tên size",
+    placeholder: currentName
+  });
+  if (!name || name === currentName) return;
+  try {
+    await api("PUT", "/api/admin/sizes/" + id, { name });
+    await refreshMenu();
+    renderAdmin();
+    toast("Đã cập nhật tên size.", "success");
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 async function removeSize(id) {
   if (!(await showConfirm("Xoá size này?", { danger: true }))) return;
