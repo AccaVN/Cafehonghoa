@@ -170,8 +170,10 @@ function openProduct(productId, editCartId = null) {
   const existing = editCartId ? cart.find((i) => i.cartId === editCartId) : null;
   const state = {
     sizeId: existing?.sizeId || p.sizes[0]?.id,
-    sugar: existing?.sugar || menu.sugarLevels[1]?.name || menu.sugarLevels[0]?.name,
-    ice: existing?.ice || menu.iceLevels[2]?.name || menu.iceLevels[0]?.name,
+    // Mặc định: "Ngọt vừa" cho đường, "Đá bình thường" cho đá — nếu vì lý do gì đó
+    // 2 mức này không còn tồn tại trong danh mục (bị xoá/đổi tên), sẽ rơi về mức đầu tiên.
+    sugar: existing?.sugar || menu.sugarLevels.find((s) => s.name === "Ngọt vừa")?.name || menu.sugarLevels[0]?.name,
+    ice: existing?.ice || menu.iceLevels.find((s) => s.name === "Đá bình thường")?.name || menu.iceLevels[0]?.name,
     toppingIds: existing ? [...existing.toppingIds] : [],
     qty: existing?.quantity || 1,
     note: existing?.note || ""
