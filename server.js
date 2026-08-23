@@ -15,6 +15,8 @@ const cookieOpts = { httpOnly: true, sameSite: "lax", secure: isProd, maxAge: 10
 
 /** bọc route async để lỗi tự rơi vào error handler thay vì làm crash tiến trình */
 const h = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+/** tạo danh sách "?,?,?" cho mệnh đề IN(...) */
+const inClause = (arr) => arr.map(() => "?").join(",");
 
 /* ================= AUTH ================= */
 app.post("/api/auth/login", h(async (req, res) => {
@@ -40,17 +42,18 @@ app.get("/api/auth/me", (req, res) => {
 
 /* ================= MENU (đọc công khai) ================= */
 async function fullMenu() {
-  const [categories, rawProducts, allSizes, allProdToppings, toppings, sugarLevels, iceLevels] = await Promise.all([
+  const [categories, rawProducts, allSizes, allProdToppings, toppings, sugarLevels, iceLevels, sizeCatalog] = await Promise.all([
     all("SELECT id,name FROM categories ORDER BY sort_order"),
     all("SELECT * FROM products ORDER BY sort_order"),
-    all("SELECT id,product_id,size_name as name,price FROM product_sizes ORDER BY price"),
+    all("SELECT id,product_id,size_name as name,price,size_id as catalog_id FROM product_sizes ORDER BY price"),
     all("SELECT product_id,topping_id FROM product_toppings"),
     all("SELECT id,name,price,active FROM toppings ORDER BY name"),
     all("SELECT id,name FROM sugar_levels ORDER BY sort_order"),
     all("SELECT id,name FROM ice_levels ORDER BY sort_order"),
+    all("SELECT id,name FROM sizes ORDER BY sort_order"),
   ]);
   const sizesByProduct = {};
-  for (const s of allSizes) (sizesByProduct[s.product_id] ||= []).push({ id: s.id, name: s.name, price: s.price });
+  for (const s of allSizes) (sizesByProduct[s.product_id] ||= []).push({ id: s.id, name: s.name, price: s.price, catalogId: s.catalog_id });
   const toppingIdsByProduct = {};
   for (const t of allProdToppings) (toppingIdsByProduct[t.product_id] ||= []).push(t.topping_id);
 
@@ -59,7 +62,7 @@ async function fullMenu() {
     image: p.image, status: p.status,
     sizes: sizesByProduct[p.id] || [], toppingIds: toppingIdsByProduct[p.id] || [],
   }));
-  return { categories, products, toppings, sugarLevels, iceLevels };
+  return { categories, products, toppings, sugarLevels, iceLevels, sizeCatalog };
 }
 app.get("/api/menu", h(async (req, res) => res.json(await fullMenu())));
 
@@ -69,7 +72,6 @@ app.post("/api/orders", h(async (req, res) => {
   if (!customerName || !String(customerName).trim()) return res.status(400).json({ error: "Vui lòng nhập tên khách hàng." });
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "Giỏ hàng đang trống." });
 
-  const inClause = (arr) => arr.map(() => "?").join(",");
   const productIds = [...new Set(items.map((i) => i.productId).filter(Boolean))];
   const sizeIds = [...new Set(items.map((i) => i.sizeId).filter(Boolean))];
   const toppingIds = [...new Set(items.flatMap((i) => (Array.isArray(i.toppingIds) ? i.toppingIds : [])))];
@@ -179,17 +181,32 @@ app.delete("/api/admin/categories/:id", requireRole("admin", "moderator"), h(asy
   res.json({ ok: true });
 }));
 
+/** Kiểm tra + tra tên cho danh sách size gửi lên (mỗi dòng phải chọn 1 size có sẵn trong danh mục, không gõ tay). */
+async function resolveProductSizes(sizesInput) {
+  if (!Array.isArray(sizesInput) || !sizesInput.length) return { error: "Phải có ít nhất 1 size." };
+  const sizeIds = sizesInput.map((s) => s && s.sizeId).filter(Boolean);
+  if (sizeIds.length !== sizesInput.length) return { error: "Vui lòng chọn size cho từng dòng." };
+  if (new Set(sizeIds).size !== sizeIds.length) return { error: "Mỗi size chỉ được chọn 1 lần cho 1 món." };
+  const catalogRows = await all(`SELECT id,name FROM sizes WHERE id IN (${inClause(sizeIds)})`, sizeIds);
+  if (catalogRows.length !== new Set(sizeIds).size) return { error: "Có size không hợp lệ — vui lòng chọn lại." };
+  const nameById = Object.fromEntries(catalogRows.map((r) => [r.id, r.name]));
+  return {
+    sizes: sizesInput.map((s) => ({ id: s.id, sizeId: s.sizeId, name: nameById[s.sizeId], price: Number(s.price) || 0 })),
+  };
+}
+
 /* ================= ADMIN: MÓN ================= */
 app.post("/api/admin/products", requireRole("admin", "moderator"), h(async (req, res) => {
   const p = req.body || {};
   if (!p.name || !String(p.name).trim()) return res.status(400).json({ error: "Vui lòng nhập tên món." });
-  if (!Array.isArray(p.sizes) || !p.sizes.length) return res.status(400).json({ error: "Phải có ít nhất 1 size." });
+  const resolved = await resolveProductSizes(p.sizes);
+  if (resolved.error) return res.status(400).json({ error: resolved.error });
   const id = uid("sp_");
   const maxRow = await get("SELECT COALESCE(MAX(sort_order),-1) m FROM products");
   await run("INSERT INTO products(id,category_id,name,description,image,status,sort_order) VALUES (?,?,?,?,?,?,?)", [
     id, p.categoryId, String(p.name).trim(), p.description || "", p.image || "", p.status || "active", maxRow.m + 1,
   ]);
-  for (const s of p.sizes) await run("INSERT INTO product_sizes(id,product_id,size_name,price) VALUES (?,?,?,?)", [uid("sz_"), id, s.name, Number(s.price) || 0]);
+  for (const s of resolved.sizes) await run("INSERT INTO product_sizes(id,product_id,size_id,size_name,price) VALUES (?,?,?,?,?)", [uid("sz_"), id, s.sizeId, s.name, s.price]);
   for (const tid of p.toppingIds || []) await run("INSERT INTO product_toppings(product_id,topping_id) VALUES (?,?)", [id, tid]);
   res.status(201).json({ id });
 }));
@@ -199,14 +216,15 @@ app.put("/api/admin/products/:id", requireRole("admin", "moderator"), h(async (r
   const existing = await get("SELECT 1 FROM products WHERE id=?", [req.params.id]);
   if (!existing) return res.status(404).json({ error: "Không tìm thấy món." });
   if (!p.name || !String(p.name).trim()) return res.status(400).json({ error: "Vui lòng nhập tên món." });
-  if (!Array.isArray(p.sizes) || !p.sizes.length) return res.status(400).json({ error: "Phải có ít nhất 1 size." });
+  const resolved = await resolveProductSizes(p.sizes);
+  if (resolved.error) return res.status(400).json({ error: resolved.error });
   await run("UPDATE products SET category_id=?,name=?,description=?,image=?,status=? WHERE id=?", [
     p.categoryId, String(p.name).trim(), p.description || "", p.image || "", p.status || "active", req.params.id,
   ]);
   await run("DELETE FROM product_sizes WHERE product_id=?", [req.params.id]);
-  for (const s of p.sizes) {
-    await run("INSERT INTO product_sizes(id,product_id,size_name,price) VALUES (?,?,?,?)", [
-      s.id && String(s.id).length < 40 ? s.id : uid("sz_"), req.params.id, s.name, Number(s.price) || 0,
+  for (const s of resolved.sizes) {
+    await run("INSERT INTO product_sizes(id,product_id,size_id,size_name,price) VALUES (?,?,?,?,?)", [
+      s.id && String(s.id).length < 40 ? s.id : uid("sz_"), req.params.id, s.sizeId, s.name, s.price,
     ]);
   }
   await run("DELETE FROM product_toppings WHERE product_id=?", [req.params.id]);
@@ -234,6 +252,26 @@ app.put("/api/admin/toppings/:id", requireRole("admin", "moderator"), h(async (r
 }));
 app.delete("/api/admin/toppings/:id", requireRole("admin", "moderator"), h(async (req, res) => {
   await run("DELETE FROM toppings WHERE id=?", [req.params.id]);
+  res.json({ ok: true });
+}));
+
+/* ================= ADMIN: DANH MỤC SIZE ================= */
+app.post("/api/admin/sizes", requireRole("admin", "moderator"), h(async (req, res) => {
+  const name = (req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Tên size không được để trống." });
+  if (await get("SELECT 1 FROM sizes WHERE name=?", [name])) return res.status(409).json({ error: "Size này đã tồn tại." });
+  const maxRow = await get("SELECT COALESCE(MAX(sort_order),-1) m FROM sizes");
+  const id = uid("szc_");
+  await run("INSERT INTO sizes(id,name,sort_order) VALUES (?,?,?)", [id, name, maxRow.m + 1]);
+  res.status(201).json({ id, name });
+}));
+app.delete("/api/admin/sizes/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  if (await get("SELECT 1 FROM product_sizes WHERE size_id=?", [req.params.id])) {
+    return res.status(409).json({ error: "Không thể xoá — size này đang được dùng cho món. Hãy đổi size của các món đó trước." });
+  }
+  const countRow = await get("SELECT COUNT(*)::int c FROM sizes");
+  if (countRow.c <= 1) return res.status(409).json({ error: "Phải giữ ít nhất 1 size." });
+  await run("DELETE FROM sizes WHERE id=?", [req.params.id]);
   res.json({ ok: true });
 }));
 

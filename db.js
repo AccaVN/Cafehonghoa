@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS products(
   status TEXT NOT NULL DEFAULT 'active',
   sort_order INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS sizes(
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS product_sizes(
   id TEXT PRIMARY KEY,
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -196,6 +201,8 @@ const REAL_MENU = {
 
 async function initDb() {
   await pool.query(SCHEMA);
+  // Nâng cấp cho database đã tồn tại từ trước khi có bảng "sizes": thêm cột tham chiếu.
+  await pool.query("ALTER TABLE product_sizes ADD COLUMN IF NOT EXISTS size_id TEXT REFERENCES sizes(id)");
 
   const { rows: userCountRows } = await pool.query("SELECT COUNT(*)::int c FROM users");
   if (!userCountRows[0].c) {
@@ -215,13 +222,15 @@ async function initDb() {
     for (const [id, name, price] of REAL_MENU.toppings) {
       await run("INSERT INTO toppings(id,name,price,active) VALUES (?,?,?,true)", [id, name, price]);
     }
+    const defaultSizeId = uid("szc_");
+    await run("INSERT INTO sizes(id,name,sort_order) VALUES (?,?,0)", [defaultSizeId, "Size chuẩn"]);
     for (let i = 0; i < REAL_MENU.products.length; i++) {
       const p = REAL_MENU.products[i];
       await run("INSERT INTO products(id,category_id,name,description,status,sort_order) VALUES (?,?,?,?,'active',?)", [
         p.id, p.cat, p.name, "", i,
       ]);
-      await run("INSERT INTO product_sizes(id,product_id,size_name,price) VALUES (?,?,?,?)", [
-        uid("sz_"), p.id, "Size chuẩn", p.price,
+      await run("INSERT INTO product_sizes(id,product_id,size_id,size_name,price) VALUES (?,?,?,?,?)", [
+        uid("sz_"), p.id, defaultSizeId, "Size chuẩn", p.price,
       ]);
       let tops = [];
       if (p.tops === "chung") tops = REAL_MENU.toppingSetChung;
@@ -235,6 +244,24 @@ async function initDb() {
       await run("INSERT INTO ice_levels(id,name,sort_order) VALUES (?,?,?)", [uid("ic_"), REAL_MENU.iceLevels[i], i]);
     }
     console.log("Seeded Café Hồng Hoa menu thật (categories, products, toppings, sugar/ice levels).");
+  }
+
+  // Di chuyển dữ liệu size cũ (nâng cấp từ bản trước khi có danh mục "sizes"): mỗi size_name
+  // của product_sizes chưa gắn size_id sẽ được tự động gắn vào (hoặc tạo mới) 1 mục trong danh mục size,
+  // giữ nguyên tên size đang dùng để không ảnh hưởng dữ liệu/đơn hàng hiện có.
+  const orphanRows = await all("SELECT DISTINCT size_name FROM product_sizes WHERE size_id IS NULL");
+  for (const row of orphanRows) {
+    let cat = await get("SELECT id FROM sizes WHERE name=?", [row.size_name]);
+    if (!cat) {
+      const maxRow = await get("SELECT COALESCE(MAX(sort_order),-1) m FROM sizes");
+      cat = { id: uid("szc_") };
+      await run("INSERT INTO sizes(id,name,sort_order) VALUES (?,?,?)", [cat.id, row.size_name, maxRow.m + 1]);
+    }
+    await run("UPDATE product_sizes SET size_id=? WHERE size_id IS NULL AND size_name=?", [cat.id, row.size_name]);
+  }
+  const sizeCountRow = await get("SELECT COUNT(*)::int c FROM sizes");
+  if (!sizeCountRow.c) {
+    await run("INSERT INTO sizes(id,name,sort_order) VALUES (?,?,0)", [uid("szc_"), "Vừa"]);
   }
 }
 
