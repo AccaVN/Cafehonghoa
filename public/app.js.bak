@@ -161,18 +161,10 @@ function renderGrid() {
 }
 
 /* ---- product customization sheet ---- */
-function openProduct(productId, editCartId = null) {
+function openProduct(productId) {
   const p = menu.products.find((x) => x.id === productId);
   const tops = menu.toppings.filter((t) => t.active && p.toppingIds.includes(t.id));
-  const existing = editCartId ? cart.find((i) => i.cartId === editCartId) : null;
-  const state = {
-    sizeId: existing?.sizeId || p.sizes[0]?.id,
-    sugar: existing?.sugar || menu.sugarLevels[1]?.name || menu.sugarLevels[0]?.name,
-    ice: existing?.ice || menu.iceLevels[2]?.name || menu.iceLevels[0]?.name,
-    toppingIds: existing ? [...existing.toppingIds] : [],
-    qty: existing?.quantity || 1,
-    note: existing?.note || ""
-  };
+  const state = { sizeId: p.sizes[0]?.id, sugar: menu.sugarLevels[1]?.name || menu.sugarLevels[0]?.name, ice: menu.iceLevels[2]?.name || menu.iceLevels[0]?.name, toppingIds: [], qty: 1, note: "" };
 
   const ov = document.createElement("div"); ov.className = "overlay"; ov.id = "productOverlay";
   function calcTotal() {
@@ -181,8 +173,6 @@ function openProduct(productId, editCartId = null) {
     return { unit: (size?.price || 0) + topTotal, total: ((size?.price || 0) + topTotal) * state.qty };
   }
   function paint() {
-    const oldSheet = ov.querySelector(".sheet");
-    const oldScrollTop = oldSheet ? oldSheet.scrollTop : 0;
     const { unit, total } = calcTotal();
     ov.innerHTML = `<div class="sheet">
       <button class="x" onclick="document.getElementById('productOverlay').remove()"><svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>
@@ -209,10 +199,6 @@ function openProduct(productId, editCartId = null) {
       </div>
     </div>`;
     ov.querySelector("#productNote").addEventListener("input", (e) => (state.note = e.target.value));
-    const newSheet = ov.querySelector(".sheet");
-    if (newSheet && oldSheet) {
-      requestAnimationFrame(() => { newSheet.scrollTop = oldScrollTop; });
-    }
   }
   ov.addEventListener("click", (e) => {
     if (e.target === ov) return ov.remove();
@@ -229,23 +215,8 @@ function openProduct(productId, editCartId = null) {
       const size = p.sizes.find((s) => s.id === state.sizeId);
       const chosen = tops.filter((x) => state.toppingIds.includes(x.id));
       const { unit, total } = calcTotal();
-      const nextItem = {
-        cartId: editCartId || ("ci_" + Math.random().toString(36).slice(2)),
-        productId: p.id, sizeId: size.id, productName: p.name, sizeName: size.name, sizePrice: size.price,
-        sugar: state.sugar, ice: state.ice, toppingIds: [...state.toppingIds], toppings: chosen,
-        quantity: state.qty, note: state.note.trim(), unitPrice: unit, subtotal: total
-      };
-      if (editCartId) {
-        const idx = cart.findIndex((i) => i.cartId === editCartId);
-        if (idx >= 0) cart[idx] = nextItem;
-        ov.remove();
-        const cartOverlay = document.getElementById("cartOverlay");
-        if (cartOverlay) { cartOverlay.remove(); openCart(); } else { renderCustomer(); }
-        toast("Đã cập nhật món.", "success");
-      } else {
-        cart.push(nextItem);
-        ov.remove(); renderCustomer(); toast("Đã thêm vào giỏ hàng.", "success");
-      }
+      cart.push({ cartId: "ci_" + Math.random().toString(36).slice(2), productId: p.id, sizeId: size.id, productName: p.name, sizeName: size.name, sizePrice: size.price, sugar: state.sugar, ice: state.ice, toppingIds: state.toppingIds, toppings: chosen, quantity: state.qty, note: state.note.trim(), unitPrice: unit, subtotal: total });
+      ov.remove(); renderCustomer(); toast("Đã thêm vào giỏ hàng.", "success");
       return;
     }
     paint();
@@ -272,10 +243,7 @@ function openCart() {
           <div class="row1"><span>${esc(it.productName)}</span><button class="x" style="width:26px;height:26px" data-remove="${it.cartId}"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button></div>
           <div class="meta">Size ${esc(it.sizeName)} · ${esc(it.sugar)} · ${esc(it.ice)}${it.toppings.length ? " · " + it.toppings.map((t) => esc(t.name)).join(", ") : ""}</div>
           ${it.note ? `<div class="meta" style="color:#b9871f">Ghi chú: ${esc(it.note)}</div>` : ""}
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px">
-            <button class="btn light" style="padding:6px 10px;font-size:12px" data-edit="${it.cartId}">Chỉnh sửa</button>
-            <div class="row2" style="margin-top:0;flex:1"><div class="qty" style="padding:3px 8px;gap:8px"><button data-qty="-1" data-id="${it.cartId}">−</button><span>${it.quantity}</span><button data-qty="1" data-id="${it.cartId}">+</button></div><strong>${money(it.subtotal)}</strong></div>
-          </div>
+          <div class="row2"><div class="qty" style="padding:3px 8px;gap:8px"><button data-qty="-1" data-id="${it.cartId}">−</button><span>${it.quantity}</span><button data-qty="1" data-id="${it.cartId}">+</button></div><strong>${money(it.subtotal)}</strong></div>
         </div>`).join("")}
       ${cart.length ? `<div class="total-row"><span>Tạm tính</span><span>${money(total())}</span></div><button class="btn orange" style="width:100%" data-act="checkout">Đặt hàng</button>` : ""}
     </div>`;
@@ -316,12 +284,6 @@ function openCart() {
     if (step === "cart") {
       const rm = e.target.closest("[data-remove]");
       if (rm) { cart = cart.filter((i) => i.cartId !== rm.dataset.remove); paintCart(); return; }
-      const editBtn = e.target.closest("[data-edit]");
-      if (editBtn) {
-        const item = cart.find((i) => i.cartId === editBtn.dataset.edit);
-        if (item) openProduct(item.productId, item.cartId);
-        return;
-      }
       const qtyBtn = e.target.closest("[data-qty]");
       if (qtyBtn) {
         const item = cart.find((i) => i.cartId === qtyBtn.dataset.id);
@@ -391,7 +353,7 @@ function renderAdmin() {
   </div>
   <div class="admin">
     <div class="tabs">
-      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
+      ${[["products","Món"],["toppings","Topping"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
     </div>
     <div id="adminBody"></div>
   </div>`;
@@ -402,7 +364,6 @@ async function paintAdminBody() {
   const el = document.getElementById("adminBody");
   if (adminTab_ === "products") return paintAdminProducts(el);
   if (adminTab_ === "toppings") return paintAdminToppings(el);
-  if (adminTab_ === "sizes") return paintAdminSizes(el);
   if (adminTab_ === "levels") return paintAdminLevels(el);
   if (adminTab_ === "categories") return paintAdminCategories(el);
   if (adminTab_ === "users") return paintAdminUsers(el);
@@ -448,34 +409,20 @@ function paintAdminProducts(el, editing) {
     </table>
   </div>`;
   const rowsWrap = document.getElementById("sizeRows");
-  const sizes = p
-    ? p.sizes.map((s) => ({ id: s.id, catalogId: s.catalogId, price: s.price }))
-    : (menu.sizeCatalog[0] ? [{ id: null, catalogId: menu.sizeCatalog[0].id, price: 0 }] : []);
+  const sizes = p ? p.sizes.map((s) => ({ ...s })) : [{ id: null, name: "Vừa", price: 0 }];
   window.__sizeRows = sizes;
   paintSizeRows();
 }
 function paintSizeRows() {
   const wrap = document.getElementById("sizeRows");
-  if (!menu.sizeCatalog.length) {
-    wrap.innerHTML = `<p style="color:var(--muted);font-size:12.5px">Chưa có size nào — tạo ở tab "Size" trước.</p>`;
-    return;
-  }
   wrap.innerHTML = window.__sizeRows.map((s, i) => `
     <div class="row2c" style="grid-template-columns:1fr 1fr 32px;margin-bottom:6px">
-      <select onchange="window.__sizeRows[${i}].catalogId=this.value">
-        ${menu.sizeCatalog.map((c) => `<option value="${c.id}" ${c.id === s.catalogId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
-      </select>
+      <input value="${esc(s.name)}" oninput="window.__sizeRows[${i}].name=this.value" placeholder="Tên size">
       <input type="number" min="0" value="${s.price}" oninput="window.__sizeRows[${i}].price=this.value" placeholder="Giá">
       <button type="button" class="btn light" style="padding:0" onclick="removeSizeRow(${i})">✕</button>
     </div>`).join("");
 }
-function addSizeRow() {
-  if (!menu.sizeCatalog.length) return toast("Chưa có size nào — tạo ở tab \"Size\" trước.", "error");
-  const used = new Set(window.__sizeRows.map((s) => s.catalogId));
-  const next = menu.sizeCatalog.find((c) => !used.has(c.id)) || menu.sizeCatalog[0];
-  window.__sizeRows.push({ id: null, catalogId: next.id, price: 0 });
-  paintSizeRows();
-}
+function addSizeRow() { window.__sizeRows.push({ id: null, name: "", price: 0 }); paintSizeRows(); }
 function removeSizeRow(i) { if (window.__sizeRows.length <= 1) return toast("Phải có ít nhất 1 size.", "error"); window.__sizeRows.splice(i, 1); paintSizeRows(); }
 function previewProductImage(e) {
   const f = e.target.files[0]; if (!f) return;
@@ -486,10 +433,9 @@ function previewProductImage(e) {
 async function saveProduct() {
   const name = document.getElementById("pn").value.trim();
   if (!name) return toast("Vui lòng nhập tên món.", "error");
-  const sizes = window.__sizeRows.filter((s) => s.catalogId).map((s) => ({ id: s.id, sizeId: s.catalogId, price: Number(s.price) || 0 }));
-  if (!sizes.length) return toast("Phải có ít nhất 1 size hợp lệ — tạo size ở tab \"Size\" trước.", "error");
+  const sizes = window.__sizeRows.filter((s) => s.name && s.name.trim()).map((s) => ({ id: s.id, name: s.name.trim(), price: Number(s.price) || 0 }));
+  if (!sizes.length) return toast("Phải có ít nhất 1 size hợp lệ.", "error");
   if (sizes.some((s) => !s.price)) return toast("Mỗi size phải có giá lớn hơn 0.", "error");
-  if (new Set(sizes.map((s) => s.sizeId)).size !== sizes.length) return toast("Mỗi size chỉ được chọn 1 lần cho 1 món.", "error");
   const toppingIds = [...document.querySelectorAll(".topCheck:checked")].map((x) => x.value);
   const imgData = document.getElementById("pimg").dataset.data;
   const payload = {
@@ -539,24 +485,6 @@ async function updateTopping(id, patch) {
 async function deleteTopping(id) {
   if (!(await showConfirm("Xoá topping này?", { danger: true }))) return;
   try { await api("DELETE", "/api/admin/toppings/" + id); await refreshMenu(); renderAdmin(); toast("Đã xoá topping.", "success"); } catch (e) { toast(e.message, "error"); }
-}
-
-/* ---- size (danh mục size dùng chung, chọn khi thêm món thay vì gõ tay) ---- */
-function paintAdminSizes(el) {
-  el.innerHTML = `<div class="panel">
-    <h3 style="margin-top:0">Quản lý Size (${menu.sizeCatalog.length})</h3>
-    <p style="color:var(--muted);font-size:12.5px;margin-top:0">Khai báo các loại size (VD: Nhỏ, Vừa, Lớn) một lần, rồi chọn ở tab "Món" khi thêm size cho từng món — không cần gõ lại tên size.</p>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.sizeCatalog.map((s) => `<span class="opt selected" style="display:flex;gap:8px">${esc(s.name)}<button onclick="removeSize('${s.id}')" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("") || `<p class="empty" style="padding:0">Chưa có size nào.</p>`}</div>
-    <div style="display:flex;gap:8px"><input id="newSize" placeholder="Tên size mới (VD: Lớn)"><button class="btn orange" onclick="addSize()">+ Thêm</button></div>
-  </div>`;
-}
-async function addSize() {
-  const input = document.getElementById("newSize"); const name = input.value.trim(); if (!name) return;
-  try { await api("POST", "/api/admin/sizes", { name }); await refreshMenu(); renderAdmin(); toast("Đã thêm size.", "success"); } catch (e) { toast(e.message, "error"); }
-}
-async function removeSize(id) {
-  if (!(await showConfirm("Xoá size này?", { danger: true }))) return;
-  try { await api("DELETE", "/api/admin/sizes/" + id); await refreshMenu(); renderAdmin(); toast("Đã xoá size.", "success"); } catch (e) { toast(e.message, "error"); }
 }
 
 /* ---- sugar / ice levels ---- */
@@ -735,15 +663,8 @@ function printHtml(html) {
   document.body.classList.add("printing");
   function cleanup() { document.body.classList.remove("printing"); window.removeEventListener("afterprint", cleanup); }
   window.addEventListener("afterprint", cleanup);
-  // Trên điện thoại (đặc biệt iOS/Android), gọi window.print() ngay sau khi vừa đổi nội dung/CSS
-  // có thể in ra trang trắng vì trình duyệt chưa kịp vẽ lại layout mới (#printArea trước đó display:none).
-  // Đợi qua 2 khung hình (double requestAnimationFrame) để chắc chắn đã có 1 lần paint trước khi in.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      window.print();
-      setTimeout(cleanup, 3000);
-    });
-  });
+  window.print();
+  setTimeout(cleanup, 3000);
 }
 function findOrder(id) { return lastLoadedOrders.find((o) => o.id === id); }
 function printBill(id) {
