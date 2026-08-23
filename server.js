@@ -346,6 +346,112 @@ app.delete("/api/admin/users/:id", requireRole("admin", "moderator"), h(async (r
   res.json({ ok: true });
 }));
 
+/* ================= IN BILL / IN TEM (trang in riêng, dùng cho iPhone) =================
+   Lý do có route riêng: trên iOS (Safari/Chrome), lệnh in thường chụp/in theo đúng trang
+   web đang mở ở tầng trên cùng — nó KHÔNG tôn trọng nội dung được JS bơm/ẩn-hiện ngay trên
+   trang admin (kể cả khi dùng iframe ẩn). Cách chắc ăn là điều hướng thật sang một trang
+   độc lập chỉ chứa nội dung bill/tem rồi tự in trang đó. */
+const escHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => Number(n || 0).toLocaleString("vi-VN") + "đ";
+const PRINT_STORE_INFO = {
+  address: "Nhà thuốc tây Hồng Hoa (cũ) 139/A quốc lộ 57B, khu phố 1, Xã Bình Đại, Tỉnh Vĩnh Long (Bến Tre cũ)",
+  phoneDisplay: "0909.777.621",
+};
+const PRINT_CSS = `
+  *{box-sizing:border-box}
+  body{margin:0;padding:14px;color:#000;font-family:Arial,sans-serif}
+  .toolbar{display:flex;gap:8px;justify-content:center;margin-bottom:16px}
+  .toolbar button{border:1.5px solid #ccc;background:#fff;border-radius:8px;padding:9px 18px;font-size:14px}
+  @media print{ .toolbar{display:none} }
+  .bill{width:280px;margin:0 auto;font-family:'Courier New',monospace;color:#000}
+  .bill h2{text-align:center;margin:0 0 2px;font-size:16px}
+  .bill .bill-sub{text-align:center;font-size:10.5px;margin:0 0 8px}
+  .bill hr{border:none;border-top:1px dashed #000;margin:6px 0}
+  .bill-row{display:flex;justify-content:space-between;font-size:11.5px;margin:2px 0}
+  .bill-table{width:100%;border-collapse:collapse;margin:6px 0;font-size:11px}
+  .bill-table td{padding:3px 0;vertical-align:top}
+  .bill-table td.qty{text-align:center;width:24px}
+  .bill-table td.amt{text-align:right;white-space:nowrap}
+  .bill-item-opts{font-size:10px;color:#333}
+  .bill-total-row{display:flex;justify-content:space-between;font-size:15px;font-weight:900;margin-top:6px}
+  .bill-thanks{text-align:center;margin-top:14px;font-size:11.5px}
+  .labels-wrap{display:flex;flex-wrap:wrap;gap:3mm}
+  .label{width:6.2cm;min-height:4cm;border:1px dashed #999;padding:7px 8px;box-sizing:border-box;font-family:Arial,sans-serif;page-break-inside:avoid}
+  .label-code{font-weight:900;font-size:11px;letter-spacing:.5px}
+  .label-name{font-weight:800;font-size:15px;margin:3px 0 2px;line-height:1.15}
+  .label-size{font-size:12px;font-weight:700}
+  .label-opts{font-size:11px;color:#333;margin-top:2px}
+  .label-top{font-size:10.5px;color:#333}
+  .label-note{font-size:10.5px;font-style:italic;margin-top:3px}
+  @page{margin:8mm}
+`;
+function printPage(bodyHtml) {
+  return `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>In</title><style>${PRINT_CSS}</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">In lại</button><button onclick="window.close()">Đóng</button></div>
+  ${bodyHtml}
+  <script>window.addEventListener("load",function(){ setTimeout(function(){ window.print(); }, 250); });</script>
+  </body></html>`;
+}
+async function loadOrderItemsWithToppings(orderId) {
+  const items = await all("SELECT * FROM order_items WHERE order_id=?", [orderId]);
+  if (!items.length) return items.map((it) => ({ ...it, toppings: [] }));
+  const toppingRows = await all(
+    `SELECT order_item_id, topping_name as name, topping_price as price FROM order_item_toppings WHERE order_item_id IN (${inClause(items.map((i) => i.id))})`,
+    items.map((i) => i.id)
+  );
+  const byItem = {};
+  for (const t of toppingRows) (byItem[t.order_item_id] ||= []).push(t);
+  return items.map((it) => ({ ...it, toppings: byItem[it.id] || [] }));
+}
+
+app.get("/print/bill/:id", requireRole("admin", "moderator", "staff"), h(async (req, res) => {
+  const order = await get("SELECT * FROM orders WHERE id=?", [req.params.id]);
+  if (!order) return res.status(404).send("Không tìm thấy đơn.");
+  const items = await loadOrderItemsWithToppings(order.id);
+  const html = `<div class="bill">
+    <h2>Café Hồng Hoa</h2>
+    <p class="bill-sub">${escHtml(PRINT_STORE_INFO.address)}<br>ĐT: ${escHtml(PRINT_STORE_INFO.phoneDisplay)}</p>
+    <hr>
+    <div class="bill-row"><span>Mã đơn</span><strong>${escHtml(order.code)}</strong></div>
+    <div class="bill-row"><span>Thời gian</span><span>${new Date(order.created_at).toLocaleString("vi-VN")}</span></div>
+    <div class="bill-row"><span>Khách hàng</span><span>${escHtml(order.customer_name)}</span></div>
+    <div class="bill-row"><span>Hình thức</span><span>${escHtml(order.receive_type)}${order.table_or_address ? " · " + escHtml(order.table_or_address) : ""}</span></div>
+    <hr>
+    <table class="bill-table">
+      <tr><td><b>Món</b></td><td class="qty"><b>SL</b></td><td class="amt"><b>T.Tiền</b></td></tr>
+      ${items.map((it) => `<tr>
+        <td>${escHtml(it.product_name)} (${escHtml(it.size_name)})${it.toppings.length ? `<div class="bill-item-opts">+ ${it.toppings.map((t) => escHtml(t.name)).join(", ")}</div>` : ""}${it.sugar || it.ice ? `<div class="bill-item-opts">${escHtml(it.sugar)} · ${escHtml(it.ice)}</div>` : ""}</td>
+        <td class="qty">${it.quantity}</td>
+        <td class="amt">${money(it.subtotal)}</td>
+      </tr>`).join("")}
+    </table>
+    <hr>
+    <div class="bill-total-row"><span>Tổng cộng</span><span>${money(order.total)}</span></div>
+    <p class="bill-thanks">Cảm ơn quý khách — hẹn gặp lại!</p>
+  </div>`;
+  res.send(printPage(html));
+}));
+
+app.get("/print/labels/:id", requireRole("admin", "moderator", "staff"), h(async (req, res) => {
+  const order = await get("SELECT * FROM orders WHERE id=?", [req.params.id]);
+  if (!order) return res.status(404).send("Không tìm thấy đơn.");
+  const items = await loadOrderItemsWithToppings(order.id);
+  const labels = [];
+  for (const it of items) {
+    for (let i = 0; i < it.quantity; i++) {
+      labels.push(`<div class="label">
+        <div class="label-code">${escHtml(order.code)} · ${escHtml(order.receive_type)}${order.table_or_address ? " " + escHtml(order.table_or_address) : ""}</div>
+        <div class="label-name">${escHtml(it.product_name)}</div>
+        <div class="label-size">Size ${escHtml(it.size_name)}</div>
+        <div class="label-opts">${escHtml(it.sugar)} · ${escHtml(it.ice)}</div>
+        ${it.toppings.length ? `<div class="label-top">+ ${it.toppings.map((t) => escHtml(t.name)).join(", ")}</div>` : ""}
+        ${it.note ? `<div class="label-note">Ghi chú: ${escHtml(it.note)}</div>` : ""}
+      </div>`);
+    }
+  }
+  res.send(printPage(`<div class="labels-wrap">${labels.join("")}</div>`));
+}));
+
 /* ================= SAO LƯU DỮ LIỆU ================= */
 app.get("/api/admin/export", requireRole("admin", "moderator"), h(async (req, res) => {
   res.json({ menu: await fullMenu(), orders: await loadOrders(), exportedAt: new Date().toISOString() });
