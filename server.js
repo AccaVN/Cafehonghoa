@@ -66,6 +66,32 @@ async function fullMenu() {
 }
 app.get("/api/menu", h(async (req, res) => res.json(await fullMenu())));
 
+/* ================= THÔNG TIN QUÁN (tên, logo, địa chỉ, giờ mở cửa, SĐT) =================
+   Đọc công khai vì trang khách hàng cần hiển thị header/giờ mở cửa mà không cần đăng nhập. */
+async function getShopSettings() {
+  let row = await get("SELECT * FROM shop_settings WHERE id='default'");
+  if (!row) {
+    await run("INSERT INTO shop_settings(id,updated_at) VALUES ('default',now())");
+    row = await get("SELECT * FROM shop_settings WHERE id='default'");
+  }
+  return row;
+}
+app.get("/api/shop-settings", h(async (req, res) => res.json(await getShopSettings())));
+app.put("/api/shop-settings", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { name, tagline, logo, address, phoneDisplay, phoneTel, openHour, openMinute, closeHour, closeMinute } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: "Vui lòng nhập tên quán." });
+  const oh = parseInt(openHour), om = parseInt(openMinute), ch = parseInt(closeHour), cm = parseInt(closeMinute);
+  if (![oh, om, ch, cm].every(Number.isFinite) || oh < 0 || oh > 23 || ch < 0 || ch > 23 || om < 0 || om > 59 || cm < 0 || cm > 59) {
+    return res.status(400).json({ error: "Giờ mở/đóng cửa không hợp lệ." });
+  }
+  const current = await getShopSettings();
+  await run(
+    "UPDATE shop_settings SET name=?,tagline=?,logo=?,address=?,phone_display=?,phone_tel=?,open_hour=?,open_minute=?,close_hour=?,close_minute=?,updated_at=now(),updated_by=? WHERE id='default'",
+    [String(name).trim(), (tagline || "").trim(), logo !== undefined ? logo : current.logo, (address || "").trim(), (phoneDisplay || "").trim(), (phoneTel || "").trim(), oh, om, ch, cm, req.user.username]
+  );
+  res.json(await getShopSettings());
+}));
+
 /* ================= ORDERS ================= */
 app.post("/api/orders", h(async (req, res) => {
   const { customerName, phone, receiveType, tableOrAddress, note, items } = req.body || {};
@@ -664,10 +690,6 @@ app.get("/api/admin/reports/profit-loss", requireRole("admin", "moderator"), h(a
    độc lập chỉ chứa nội dung bill/tem rồi tự in trang đó. */
 const escHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = (n) => Number(n || 0).toLocaleString("vi-VN") + "đ";
-const PRINT_STORE_INFO = {
-  address: "Nhà thuốc tây Hồng Hoa (cũ) 139/A quốc lộ 57B, khu phố 1, Xã Bình Đại, Tỉnh Vĩnh Long (Bến Tre cũ)",
-  phoneDisplay: "0909.777.621",
-};
 const PRINT_CSS = `
   *{box-sizing:border-box}
   body{margin:0;padding:14px;color:#000;font-family:Arial,sans-serif}
@@ -719,9 +741,10 @@ app.get("/print/bill/:id", requireRole("admin", "moderator", "staff"), h(async (
   const order = await get("SELECT * FROM orders WHERE id=?", [req.params.id]);
   if (!order) return res.status(404).send("Không tìm thấy đơn.");
   const items = await loadOrderItemsWithToppings(order.id);
+  const shop = await getShopSettings();
   const html = `<div class="bill">
-    <h2>Café Hồng Hoa</h2>
-    <p class="bill-sub">${escHtml(PRINT_STORE_INFO.address)}<br>ĐT: ${escHtml(PRINT_STORE_INFO.phoneDisplay)}</p>
+    <h2>${escHtml(shop.name)}</h2>
+    <p class="bill-sub">${escHtml(shop.address)}${shop.address && shop.phone_display ? "<br>" : ""}${shop.phone_display ? "ĐT: " + escHtml(shop.phone_display) : ""}</p>
     <hr>
     <div class="bill-row"><span>Mã đơn</span><strong>${escHtml(order.code)}</strong></div>
     <div class="bill-row"><span>Thời gian</span><span>${new Date(order.created_at).toLocaleString("vi-VN")}</span></div>

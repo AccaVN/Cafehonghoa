@@ -178,6 +178,23 @@ CREATE TABLE IF NOT EXISTS attendance_settings(
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by TEXT
 );
+-- Thông tin quán (tên, logo, địa chỉ, giờ mở cửa, SĐT) — chủ quán tự khai báo trong trang quản trị
+-- thay vì hard-code trong code. Chỉ 1 dòng duy nhất, id cố định 'default'.
+CREATE TABLE IF NOT EXISTS shop_settings(
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  name TEXT NOT NULL DEFAULT 'Café Hồng Hoa',
+  tagline TEXT NOT NULL DEFAULT 'coffee and tea',
+  logo TEXT DEFAULT '', -- ảnh logo dạng base64 data URI (giống ảnh món), để trống thì dùng icon mặc định
+  address TEXT DEFAULT '',
+  phone_display TEXT DEFAULT '',
+  phone_tel TEXT DEFAULT '',
+  open_hour INTEGER NOT NULL DEFAULT 7,
+  open_minute INTEGER NOT NULL DEFAULT 0,
+  close_hour INTEGER NOT NULL DEFAULT 21,
+  close_minute INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by TEXT
+);
 `;
 
 /** Menu thật của Café Hồng Hoa (theo bảng giá quán cung cấp). Mỗi món 1 mức giá chuẩn (không chia size Nhỏ/Vừa/Lớn). */
@@ -322,6 +339,15 @@ async function initDb() {
     await run("INSERT INTO attendance_settings(id,latitude,longitude,radius_meters,updated_at) VALUES ('default',?,?,?,now())", [
       10.1857238, 106.6941122, 100,
     ]);
+  }
+
+  // Giữ nguyên thông tin quán đang dùng làm giá trị mặc định — chủ quán vào tab "Thông tin quán" để tự sửa.
+  const shopRow = await get("SELECT id FROM shop_settings WHERE id='default'");
+  if (!shopRow) {
+    await run(
+      "INSERT INTO shop_settings(id,name,tagline,logo,address,phone_display,phone_tel,open_hour,open_minute,close_hour,close_minute,updated_at) VALUES ('default',?,?,?,?,?,?,?,?,?,?,now())",
+      ["Café Hồng Hoa", "coffee and tea", "/assets/logo-icon.png", "Nhà thuốc tây Hồng Hoa (cũ) 139/A quốc lộ 57B, khu phố 1, Xã Bình Đại, Tỉnh Vĩnh Long (Bến Tre cũ)", "0909.777.621", "0909777621", 7, 0, 21, 0]
+    );
   }
 }
 
