@@ -396,7 +396,7 @@ function renderAdmin() {
   </div>
   <div class="admin">
     <div class="tabs">
-      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
+      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"],["debts","Công nợ"],["cashbook","Sổ quỹ"],["attendance","Chấm công"],["reports","Báo cáo lãi lỗ"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
     </div>
     <div id="adminBody"></div>
   </div>`;
@@ -412,6 +412,15 @@ async function paintAdminBody() {
   if (adminTab_ === "categories") return paintAdminCategories(el);
   if (adminTab_ === "users") return paintAdminUsers(el);
   if (adminTab_ === "orders") return paintAdminOrders(el);
+  if (adminTab_ === "debts") return paintAdminDebts(el);
+  if (adminTab_ === "cashbook") return paintAdminCashbook(el);
+  if (adminTab_ === "attendance") return paintAdminAttendance(el);
+  if (adminTab_ === "reports") return paintAdminReports(el);
+}
+/** Chỉ admin/moderator được xem các tab tài chính/nhân sự nhạy cảm. */
+function requireFinanceAccess(el) {
+  if (!["admin", "moderator"].includes(me.role)) { el.innerHTML = `<p class="empty">Không có quyền xem mục này.</p>`; return false; }
+  return true;
 }
 
 /* ---- products ---- */
@@ -791,6 +800,367 @@ function printBill(id) {
 }
 function printLabels(id) {
   window.open("/print/labels/" + encodeURIComponent(id), "_blank");
+}
+
+/* ================= ADMIN: SỔ QUỸ THU / CHI ================= */
+function defaultMonthRange() {
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const to = now.toISOString().slice(0, 10);
+  return { from, to };
+}
+const CASHBOOK_CATEGORIES_CHI = ["Nguyên liệu", "Lương nhân viên", "Mặt bằng/Điện nước", "Marketing", "Sửa chữa/Bảo trì", "Khác"];
+const CASHBOOK_CATEGORIES_THU = ["Thu khác (ngoài đơn hàng)", "Hoàn tiền", "Khác"];
+let cbFilter_ = { ...defaultMonthRange(), type: "" };
+let lastCashbookRows_ = [];
+async function paintAdminCashbook(el) {
+  if (!requireFinanceAccess(el)) return;
+  const qs = new URLSearchParams({ from: cbFilter_.from, to: cbFilter_.to, ...(cbFilter_.type ? { type: cbFilter_.type } : {}) });
+  const rows = await api("GET", "/api/admin/cashbook?" + qs.toString());
+  lastCashbookRows_ = rows;
+  const totalThu = rows.filter((r) => r.type === "thu").reduce((s, r) => s + r.amount, 0);
+  const totalChi = rows.filter((r) => r.type === "chi").reduce((s, r) => s + r.amount, 0);
+  el.innerHTML = `
+  <div class="panel">
+    <h3 style="margin-top:0">Bộ lọc</h3>
+    <div class="row2c" style="grid-template-columns:1fr 1fr 1fr 1fr">
+      <div><label style="font-size:11.5px;color:var(--muted)">Từ ngày</label><input id="cbFrom" type="date" value="${cbFilter_.from}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Đến ngày</label><input id="cbTo" type="date" value="${cbFilter_.to}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Loại</label><select id="cbType"><option value="">Tất cả</option><option value="thu" ${cbFilter_.type === "thu" ? "selected" : ""}>Thu</option><option value="chi" ${cbFilter_.type === "chi" ? "selected" : ""}>Chi</option></select></div>
+      <div style="align-self:end"><button class="btn orange" style="width:100%" onclick="applyCashbookFilter()">Lọc</button></div>
+    </div>
+  </div>
+  <div class="panel" style="display:flex;gap:24px;flex-wrap:wrap">
+    <div><div style="font-size:11.5px;color:var(--muted)">Tổng thu</div><strong style="color:#4b5c2e;font-size:17px">${money(totalThu)}</strong></div>
+    <div><div style="font-size:11.5px;color:var(--muted)">Tổng chi</div><strong style="color:#b3261e;font-size:17px">${money(totalChi)}</strong></div>
+    <div><div style="font-size:11.5px;color:var(--muted)">Số dư</div><strong style="font-size:17px">${money(totalThu - totalChi)}</strong></div>
+  </div>
+  <div class="panel">
+    <div class="admin-toolbar" style="margin-bottom:10px"><h3 style="margin:0">Ghi sổ (${rows.length})</h3>
+      <button class="btn-mini btn-mini-solid" onclick="exportCashbookExcel()">Xuất Excel</button>
+    </div>
+    ${!rows.length ? `<p class="empty">Chưa có khoản thu/chi nào trong khoảng này.</p>` : `<table class="table">
+      <tr><th>Ngày</th><th>Loại</th><th>Danh mục</th><th>Số tiền</th><th>Ghi chú</th><th>Người ghi</th><th></th></tr>
+      ${rows.map((r) => `<tr>
+        <td>${new Date(r.occurred_at).toLocaleDateString("vi-VN")}</td>
+        <td><span class="badge ${r.type === "thu" ? "s2" : "s0"}">${r.type === "thu" ? "Thu" : "Chi"}</span></td>
+        <td>${esc(r.category)}</td>
+        <td>${money(r.amount)}</td>
+        <td>${esc(r.note || "—")}</td>
+        <td>${esc(r.created_by || "—")}</td>
+        <td><button class="btn light" onclick="deleteCashbookEntry('${r.id}')">Xoá</button></td>
+      </tr>`).join("")}
+    </table>`}
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">Thêm khoản thu/chi</h3>
+    <div class="row2c" style="grid-template-columns:100px 1fr 140px 1fr">
+      <select id="cbNewType" onchange="paintCashbookCategoryOptions()">
+        <option value="chi">Chi</option><option value="thu">Thu</option>
+      </select>
+      <select id="cbNewCategory"></select>
+      <input id="cbNewAmount" type="number" min="1" placeholder="Số tiền">
+      <input id="cbNewDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+    </div>
+    <div style="margin-top:10px"><input id="cbNewNote" placeholder="Ghi chú (không bắt buộc)" style="width:100%"></div>
+    <div style="margin-top:10px"><button class="btn orange" onclick="addCashbookEntry()">+ Ghi sổ</button></div>
+  </div>`;
+  paintCashbookCategoryOptions();
+}
+function paintCashbookCategoryOptions() {
+  const typeSel = document.getElementById("cbNewType");
+  const catSel = document.getElementById("cbNewCategory");
+  if (!typeSel || !catSel) return;
+  const list = typeSel.value === "thu" ? CASHBOOK_CATEGORIES_THU : CASHBOOK_CATEGORIES_CHI;
+  catSel.innerHTML = list.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+}
+function applyCashbookFilter() {
+  cbFilter_ = {
+    from: document.getElementById("cbFrom").value || defaultMonthRange().from,
+    to: document.getElementById("cbTo").value || defaultMonthRange().to,
+    type: document.getElementById("cbType").value,
+  };
+  paintAdminBody();
+}
+async function addCashbookEntry() {
+  const type = document.getElementById("cbNewType").value;
+  const category = document.getElementById("cbNewCategory").value;
+  const amount = document.getElementById("cbNewAmount").value;
+  const occurredAt = document.getElementById("cbNewDate").value;
+  const note = document.getElementById("cbNewNote").value;
+  if (!amount || Number(amount) <= 0) return toast("Vui lòng nhập số tiền hợp lệ.", "error");
+  try {
+    await api("POST", "/api/admin/cashbook", { type, category, amount, note, occurredAt });
+    paintAdminBody();
+    toast("Đã ghi sổ.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+async function deleteCashbookEntry(id) {
+  if (!(await showConfirm("Xoá khoản thu/chi này?", { danger: true }))) return;
+  try { await api("DELETE", "/api/admin/cashbook/" + id); paintAdminBody(); toast("Đã xoá.", "success"); } catch (e) { toast(e.message, "error"); }
+}
+function exportCashbookExcel() {
+  if (!lastCashbookRows_.length) return toast("Chưa có dữ liệu để xuất.", "error");
+  const rows = lastCashbookRows_.map((r) => ({
+    "Ngày": new Date(r.occurred_at).toLocaleDateString("vi-VN"),
+    "Loại": r.type === "thu" ? "Thu" : "Chi",
+    "Danh mục": r.category,
+    "Số tiền": r.amount,
+    "Ghi chú": r.note,
+    "Người ghi": r.created_by,
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [{ wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 14 }, { wch: 30 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "So quy");
+  XLSX.writeFile(wb, `so-quy-hong-hoa-${cbFilter_.from}_${cbFilter_.to}.xlsx`);
+}
+
+/* ================= ADMIN: CÔNG NỢ ================= */
+let debtFilter_ = "";
+async function paintAdminDebts(el) {
+  if (!requireFinanceAccess(el)) return;
+  const debts = await api("GET", "/api/admin/debts");
+  const filtered = debtFilter_ ? debts.filter((d) => d.type === debtFilter_) : debts;
+  const totalReceivable = debts.filter((d) => d.type === "receivable" && d.status === "open").reduce((s, d) => s + d.remaining, 0);
+  const totalPayable = debts.filter((d) => d.type === "payable" && d.status === "open").reduce((s, d) => s + d.remaining, 0);
+  el.innerHTML = `
+  <div class="panel" style="display:flex;gap:24px;flex-wrap:wrap">
+    <div><div style="font-size:11.5px;color:var(--muted)">Tổng phải thu (còn nợ)</div><strong style="color:#4b5c2e;font-size:17px">${money(totalReceivable)}</strong></div>
+    <div><div style="font-size:11.5px;color:var(--muted)">Tổng phải trả (còn nợ)</div><strong style="color:#b3261e;font-size:17px">${money(totalPayable)}</strong></div>
+  </div>
+  <div class="panel">
+    <div class="admin-toolbar" style="margin-bottom:10px">
+      <h3 style="margin:0">Công nợ (${filtered.length})</h3>
+      <div class="tabs" style="margin:0"><button class="${debtFilter_ === "" ? "active" : ""}" onclick="setDebtFilter('')">Tất cả</button><button class="${debtFilter_ === "receivable" ? "active" : ""}" onclick="setDebtFilter('receivable')">Phải thu</button><button class="${debtFilter_ === "payable" ? "active" : ""}" onclick="setDebtFilter('payable')">Phải trả</button></div>
+    </div>
+    ${!filtered.length ? `<p class="empty">Chưa có khoản công nợ nào.</p>` : filtered.map((d) => `
+      <div class="order-card" style="padding:12px 14px">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
+          <div>
+            <strong>${esc(d.partner_name)}</strong>
+            <span class="badge ${d.type === "receivable" ? "s2" : "s0"}">${d.type === "receivable" ? "Phải thu" : "Phải trả"}</span>
+            <span class="badge ${d.status === "closed" ? "s3" : "s1"}">${d.status === "closed" ? "Đã tất toán" : "Còn nợ"}</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--muted)">${esc(d.phone || "")}</div>
+        </div>
+        <div style="font-size:12.5px;margin-top:6px;display:flex;gap:18px;flex-wrap:wrap">
+          <span>Tổng nợ: <b>${money(d.amount)}</b></span>
+          <span>Đã ${d.type === "receivable" ? "thu" : "trả"}: <b>${money(d.paid)}</b></span>
+          <span>Còn lại: <b>${money(d.remaining)}</b></span>
+        </div>
+        ${d.note ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">Ghi chú: ${esc(d.note)}</div>` : ""}
+        ${d.payments.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Lịch sử thanh toán (${d.payments.length})</summary>
+          ${d.payments.map((p) => `<div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed var(--line)"><span>${new Date(p.paid_at).toLocaleDateString("vi-VN")}${p.note ? " · " + esc(p.note) : ""}</span><b>${money(p.amount)}</b></div>`).join("")}
+        </details>` : ""}
+        <div class="status-row" style="margin-top:10px">
+          ${d.status !== "closed" ? `<button class="status-pill" onclick="addDebtPayment('${d.id}','${d.type}')">Ghi nhận ${d.type === "receivable" ? "thu tiền" : "trả tiền"}</button>` : ""}
+          <button class="status-pill" style="border-color:#b3261e;color:#b3261e" onclick="deleteDebt('${d.id}')">Xoá</button>
+        </div>
+      </div>`).join("")}
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">Thêm khoản công nợ</h3>
+    <div class="row2c" style="grid-template-columns:140px 1fr 1fr">
+      <select id="dNewType"><option value="receivable">Phải thu (khách nợ)</option><option value="payable">Phải trả (nợ NCC)</option></select>
+      <input id="dNewPartner" placeholder="Tên khách hàng / nhà cung cấp">
+      <input id="dNewPhone" placeholder="SĐT (không bắt buộc)">
+    </div>
+    <div class="row2c" style="grid-template-columns:1fr 2fr;margin-top:10px">
+      <input id="dNewAmount" type="number" min="1" placeholder="Số tiền">
+      <input id="dNewNote" placeholder="Ghi chú (không bắt buộc)">
+    </div>
+    <div style="margin-top:10px"><button class="btn orange" onclick="addDebt()">+ Thêm công nợ</button></div>
+  </div>`;
+}
+function setDebtFilter(t) { debtFilter_ = t; paintAdminBody(); }
+async function addDebt() {
+  const type = document.getElementById("dNewType").value;
+  const partnerName = document.getElementById("dNewPartner").value.trim();
+  const phone = document.getElementById("dNewPhone").value.trim();
+  const amount = document.getElementById("dNewAmount").value;
+  const note = document.getElementById("dNewNote").value.trim();
+  if (!partnerName) return toast("Vui lòng nhập tên khách hàng/nhà cung cấp.", "error");
+  if (!amount || Number(amount) <= 0) return toast("Vui lòng nhập số tiền hợp lệ.", "error");
+  try {
+    await api("POST", "/api/admin/debts", { type, partnerName, phone, amount, note });
+    paintAdminBody();
+    toast("Đã thêm khoản công nợ.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+async function addDebtPayment(debtId, type) {
+  const amountStr = await showPrompt(type === "receivable" ? "Số tiền khách vừa trả:" : "Số tiền vừa trả cho nhà cung cấp:", {
+    title: "Ghi nhận thanh toán", type: "number", placeholder: "Số tiền",
+  });
+  if (!amountStr) return;
+  const amount = Number(amountStr);
+  if (!amount || amount <= 0) return toast("Số tiền không hợp lệ.", "error");
+  try {
+    await api("POST", `/api/admin/debts/${debtId}/payments`, { amount });
+    paintAdminBody();
+    toast("Đã ghi nhận thanh toán.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+async function deleteDebt(id) {
+  if (!(await showConfirm("Xoá khoản công nợ này? Toàn bộ lịch sử thanh toán liên quan cũng sẽ bị xoá.", { danger: true }))) return;
+  try { await api("DELETE", "/api/admin/debts/" + id); paintAdminBody(); toast("Đã xoá.", "success"); } catch (e) { toast(e.message, "error"); }
+}
+
+/* ================= ADMIN: CHẤM CÔNG NHÂN VIÊN ================= */
+let attFilter_ = defaultMonthRange();
+async function paintAdminAttendance(el) {
+  if (!requireFinanceAccess(el)) return;
+  const [rows, users] = await Promise.all([
+    api("GET", `/api/admin/attendance?from=${attFilter_.from}&to=${attFilter_.to}`),
+    api("GET", "/api/admin/users"),
+  ]);
+  const totalHours = rows.reduce((s, r) => s + Number(r.hours || 0), 0);
+  el.innerHTML = `
+  <div class="panel">
+    <h3 style="margin-top:0">Bộ lọc</h3>
+    <div class="row2c" style="grid-template-columns:1fr 1fr 140px">
+      <div><label style="font-size:11.5px;color:var(--muted)">Từ ngày</label><input id="attFrom" type="date" value="${attFilter_.from}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Đến ngày</label><input id="attTo" type="date" value="${attFilter_.to}"></div>
+      <div style="align-self:end"><button class="btn orange" style="width:100%" onclick="applyAttendanceFilter()">Lọc</button></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="admin-toolbar" style="margin-bottom:10px"><h3 style="margin:0">Bảng công (${rows.length}) — Tổng ${totalHours.toFixed(2)} giờ</h3></div>
+    ${!rows.length ? `<p class="empty">Chưa có bản ghi chấm công trong khoảng này.</p>` : `<table class="table">
+      <tr><th>Nhân viên</th><th>Ngày</th><th>Giờ vào</th><th>Giờ ra</th><th>Số giờ</th><th>Ghi chú</th><th></th></tr>
+      ${rows.map((r) => `<tr>
+        <td>${esc(r.username)}</td>
+        <td>${new Date(r.work_date).toLocaleDateString("vi-VN")}</td>
+        <td>${r.check_in ? new Date(r.check_in).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+        <td>${r.check_out ? new Date(r.check_out).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+        <td>${Number(r.hours || 0).toFixed(2)}</td>
+        <td>${esc(r.note || "—")}</td>
+        <td><button class="btn light" onclick="editAttendance('${r.id}','${esc(r.check_in || "")}','${esc(r.check_out || "")}')">Sửa</button> <button class="btn light" onclick="deleteAttendance('${r.id}')">Xoá</button></td>
+      </tr>`).join("")}
+    </table>`}
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">Thêm bản ghi chấm công</h3>
+    <div class="row2c" style="grid-template-columns:1fr 140px">
+      <select id="attNewUser">${users.map((u) => `<option value="${u.id}">${esc(u.username)}</option>`).join("")}</select>
+      <input id="attNewDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+    </div>
+    <div class="row2c" style="grid-template-columns:1fr 1fr;margin-top:10px">
+      <div><label style="font-size:11.5px;color:var(--muted)">Giờ vào</label><input id="attNewIn" type="time"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Giờ ra</label><input id="attNewOut" type="time"></div>
+    </div>
+    <div style="margin-top:10px"><input id="attNewNote" placeholder="Ghi chú (không bắt buộc)" style="width:100%"></div>
+    <div style="margin-top:10px"><button class="btn orange" onclick="addAttendance()">+ Thêm</button></div>
+  </div>`;
+}
+function applyAttendanceFilter() {
+  attFilter_ = {
+    from: document.getElementById("attFrom").value || defaultMonthRange().from,
+    to: document.getElementById("attTo").value || defaultMonthRange().to,
+  };
+  paintAdminBody();
+}
+function combineDateTime(dateStr, timeStr) {
+  if (!dateStr || !timeStr) return null;
+  return new Date(`${dateStr}T${timeStr}:00`).toISOString();
+}
+async function addAttendance() {
+  const userId = document.getElementById("attNewUser").value;
+  const workDate = document.getElementById("attNewDate").value;
+  const inTime = document.getElementById("attNewIn").value;
+  const outTime = document.getElementById("attNewOut").value;
+  const note = document.getElementById("attNewNote").value;
+  if (!userId || !workDate) return toast("Vui lòng chọn nhân viên và ngày công.", "error");
+  try {
+    await api("POST", "/api/admin/attendance", {
+      userId, workDate, checkIn: combineDateTime(workDate, inTime), checkOut: combineDateTime(workDate, outTime), note,
+    });
+    paintAdminBody();
+    toast("Đã thêm chấm công.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+async function editAttendance(id, currentIn, currentOut) {
+  const inTime = currentIn ? new Date(currentIn).toTimeString().slice(0, 5) : "";
+  const outTime = currentOut ? new Date(currentOut).toTimeString().slice(0, 5) : "";
+  const newIn = await showPrompt("Giờ vào (HH:MM, để trống nếu không có):", { title: "Sửa giờ vào", placeholder: inTime || "08:00" });
+  if (newIn === null) return;
+  const newOut = await showPrompt("Giờ ra (HH:MM, để trống nếu không có):", { title: "Sửa giờ ra", placeholder: outTime || "17:00" });
+  if (newOut === null) return;
+  const dateStr = new Date(currentIn || currentOut || Date.now()).toISOString().slice(0, 10);
+  try {
+    await api("PUT", "/api/admin/attendance/" + id, {
+      checkIn: newIn ? combineDateTime(dateStr, newIn) : null,
+      checkOut: newOut ? combineDateTime(dateStr, newOut) : null,
+    });
+    paintAdminBody();
+    toast("Đã cập nhật.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+async function deleteAttendance(id) {
+  if (!(await showConfirm("Xoá bản ghi chấm công này?", { danger: true }))) return;
+  try { await api("DELETE", "/api/admin/attendance/" + id); paintAdminBody(); toast("Đã xoá.", "success"); } catch (e) { toast(e.message, "error"); }
+}
+
+/* ================= ADMIN: BÁO CÁO LÃI LỖ CHI TIẾT ================= */
+let reportFilter_ = defaultMonthRange();
+let lastReport_ = null;
+async function paintAdminReports(el) {
+  if (!requireFinanceAccess(el)) return;
+  const report = await api("GET", `/api/admin/reports/profit-loss?from=${reportFilter_.from}&to=${reportFilter_.to}`);
+  lastReport_ = report;
+  const profitColor = report.profit >= 0 ? "#4b5c2e" : "#b3261e";
+  el.innerHTML = `
+  <div class="panel">
+    <h3 style="margin-top:0">Khoảng thời gian</h3>
+    <div class="row2c" style="grid-template-columns:1fr 1fr 140px">
+      <div><label style="font-size:11.5px;color:var(--muted)">Từ ngày</label><input id="repFrom" type="date" value="${reportFilter_.from}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Đến ngày</label><input id="repTo" type="date" value="${reportFilter_.to}"></div>
+      <div style="align-self:end"><button class="btn orange" style="width:100%" onclick="applyReportFilter()">Xem báo cáo</button></div>
+    </div>
+  </div>
+  <div class="panel" style="display:flex;gap:24px;flex-wrap:wrap">
+    <div><div style="font-size:11.5px;color:var(--muted)">Doanh thu bán hàng (${report.orderCount} đơn)</div><strong style="font-size:17px">${money(report.revenue)}</strong></div>
+    <div><div style="font-size:11.5px;color:var(--muted)">Thu khác</div><strong style="font-size:17px">${money(report.otherIncome)}</strong></div>
+    <div><div style="font-size:11.5px;color:var(--muted)">Tổng chi phí</div><strong style="color:#b3261e;font-size:17px">${money(report.expense)}</strong></div>
+    <div><div style="font-size:11.5px;color:var(--muted)">Lợi nhuận</div><strong style="color:${profitColor};font-size:19px">${money(report.profit)}</strong></div>
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">Chi phí theo danh mục</h3>
+    ${!report.expenseByCategory.length ? `<p class="empty">Không có chi phí nào trong khoảng này.</p>` : `<table class="table">
+      <tr><th>Danh mục</th><th>Số tiền</th><th>Tỷ trọng</th></tr>
+      ${report.expenseByCategory.map((c) => `<tr><td>${esc(c.category)}</td><td>${money(c.total)}</td><td>${report.expense ? ((c.total / report.expense) * 100).toFixed(1) : 0}%</td></tr>`).join("")}
+    </table>`}
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">Doanh thu &amp; chi phí theo ngày</h3>
+    ${!report.daily.length ? `<p class="empty">Chưa có dữ liệu.</p>` : `<table class="table">
+      <tr><th>Ngày</th><th>Doanh thu</th><th>Chi phí</th><th>Chênh lệch</th></tr>
+      ${report.daily.map((d) => `<tr><td>${new Date(d.date).toLocaleDateString("vi-VN")}</td><td>${money(d.revenue)}</td><td>${money(d.expense)}</td><td>${money(d.revenue - d.expense)}</td></tr>`).join("")}
+    </table>`}
+    <div style="margin-top:12px"><button class="btn-mini btn-mini-solid" onclick="exportReportExcel()">Xuất Excel báo cáo</button></div>
+  </div>`;
+}
+function applyReportFilter() {
+  reportFilter_ = {
+    from: document.getElementById("repFrom").value || defaultMonthRange().from,
+    to: document.getElementById("repTo").value || defaultMonthRange().to,
+  };
+  paintAdminBody();
+}
+function exportReportExcel() {
+  if (!lastReport_) return;
+  const wb = XLSX.utils.book_new();
+  const summary = [
+    { "Chỉ tiêu": "Doanh thu bán hàng", "Giá trị": lastReport_.revenue },
+    { "Chỉ tiêu": "Thu khác", "Giá trị": lastReport_.otherIncome },
+    { "Chỉ tiêu": "Tổng chi phí", "Giá trị": lastReport_.expense },
+    { "Chỉ tiêu": "Lợi nhuận", "Giá trị": lastReport_.profit },
+    { "Chỉ tiêu": "Số đơn hàng", "Giá trị": lastReport_.orderCount },
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "Tong quan");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lastReport_.expenseByCategory.map((c) => ({ "Danh mục": c.category, "Số tiền": c.total }))), "Chi phi theo danh muc");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lastReport_.daily.map((d) => ({ "Ngày": d.date, "Doanh thu": d.revenue, "Chi phí": d.expense, "Chênh lệch": d.revenue - d.expense }))), "Theo ngay");
+  XLSX.writeFile(wb, `bao-cao-lai-lo-hong-hoa-${reportFilter_.from}_${reportFilter_.to}.xlsx`);
 }
 
 boot();
