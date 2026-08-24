@@ -1,12 +1,10 @@
 /* ================= state ================= */
 const ALL_CAT = "__all__";
-const STORE_INFO = {
-  address: "Nhà thuốc tây Hồng Hoa (cũ) 139/A quốc lộ 57B, khu phố 1, Xã Bình Đại, Tỉnh Vĩnh Long (Bến Tre cũ)",
-  hoursText: "07:00 - 21:00",
-  openHour: 7, openMinute: 0, closeHour: 21, closeMinute: 0,
-  phoneDisplay: "0909.777.621", phoneTel: "0909777621",
-};
+/* Thông tin quán (tên, logo, địa chỉ, giờ mở cửa, SĐT) được tải từ server (tab "Thông tin quán"
+   trong trang quản trị), không còn hard-code cứng trong code như trước. */
+let STORE_INFO = null;
 function isStoreOpenNow() {
+  if (!STORE_INFO) return true;
   const now = new Date();
   const mins = now.getHours() * 60 + now.getMinutes();
   const open = STORE_INFO.openHour * 60 + STORE_INFO.openMinute;
@@ -97,9 +95,11 @@ let myOpenPrevious_ = [];
 
 async function boot() {
   const root = document.getElementById("root");
-  root.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted)">Đang tải thực đơn Café Hồng Hoa…</div>`;
+  root.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted)">Đang tải…</div>`;
   try {
-    [menu, me] = await Promise.all([api("GET", "/api/menu"), api("GET", "/api/auth/me")]);
+    const [menuRes, meRes, shopRes] = await Promise.all([api("GET", "/api/menu"), api("GET", "/api/auth/me"), api("GET", "/api/shop-settings")]);
+    menu = menuRes; me = meRes;
+    applyShopSettings(shopRes);
     activeCategory = ALL_CAT;
     if (CHECKIN_INTENT && me) { view = "admin"; adminTab_ = "mytime"; }
     render();
@@ -109,6 +109,28 @@ async function boot() {
     root.innerHTML = `<div style="padding:60px;text-align:center;color:#b3261e">Không kết nối được tới máy chủ. Vui lòng kiểm tra server đang chạy.</div>`;
   }
 }
+/** Ánh xạ dữ liệu từ /api/shop-settings (snake_case) sang STORE_INFO, đồng thời cập nhật tiêu đề tab & favicon. */
+function applyShopSettings(s) {
+  const pad2 = (n) => String(n).padStart(2, "0");
+  STORE_INFO = {
+    name: s.name || "Café Hồng Hoa",
+    tagline: s.tagline || "",
+    logo: s.logo || "/assets/logo-icon.png",
+    address: s.address || "",
+    phoneDisplay: s.phone_display || "",
+    phoneTel: s.phone_tel || "",
+    openHour: s.open_hour, openMinute: s.open_minute, closeHour: s.close_hour, closeMinute: s.close_minute,
+    hoursText: `${pad2(s.open_hour)}:${pad2(s.open_minute)} - ${pad2(s.close_hour)}:${pad2(s.close_minute)}`,
+  };
+  document.title = STORE_INFO.name + " — Đặt món trực tuyến";
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (favicon && STORE_INFO.logo) favicon.href = STORE_INFO.logo;
+  const loginLogo = document.getElementById("loginLogo");
+  if (loginLogo) { loginLogo.src = STORE_INFO.logo; loginLogo.alt = STORE_INFO.name; }
+  const loginSub = document.getElementById("loginSub");
+  if (loginSub) loginSub.textContent = STORE_INFO.name + " · Khu vực dành cho nhân viên";
+}
+async function refreshShopSettings() { applyShopSettings(await api("GET", "/api/shop-settings")); }
 /** Nhắc nhở thụ động: hiện toast khi nhân viên/quản lý mở app mà quên chấm vào/ra, không cần hạ tầng push notification. */
 async function checkAttendanceReminders() {
   if (!me || !["admin", "moderator", "staff"].includes(me.role)) return;
@@ -144,19 +166,19 @@ function renderCustomer() {
   const cartTotal = cart.reduce((s, i) => s + i.subtotal, 0);
   root.innerHTML = `
   <header>
-    <div class="brand"><img src="/assets/logo-icon.png" alt="Hồng Hoa"><span class="brand-text">Hồng Hoa<small>coffee and tea</small></span></div>
+    <div class="brand"><img src="${esc(STORE_INFO.logo)}" alt="${esc(STORE_INFO.name)}"><span class="brand-text">${esc(STORE_INFO.name)}${STORE_INFO.tagline ? `<small>${esc(STORE_INFO.tagline)}</small>` : ""}</span></div>
     <button class="btn-icon" title="Trang quản trị" onclick="openLogin()"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     <button class="btn orange" onclick="openCart()" style="display:flex;align-items:center;gap:6px"><svg class="icon" viewBox="0 0 24 24"><path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6 5 2H2"/><circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="20" r="1.4" fill="currentColor" stroke="none"/></svg> ${cartCount}</button>
   </header>
   <div class="hero">
-    <h1>Café Hồng Hoa</h1>
+    <h1>${esc(STORE_INFO.name)}</h1>
     <p class="hero-tag">Chọn món · Tùy chỉnh đường, đá và topping theo ý bạn</p>
     <div class="hero-info">
       <div class="hero-info-row"><strong>Trạng thái:</strong> <span class="${isStoreOpenNow() ? "status-open" : "status-closed"}">${isStoreOpenNow() ? "Đang mở cửa" : "Đang đóng cửa"}</span></div>
       ${TABLE_FROM_URL ? `<div class="hero-info-row"><strong>Bàn của bạn:</strong> Bàn ${esc(TABLE_FROM_URL)}</div>` : ""}
-      <div class="hero-info-row"><strong>Địa chỉ:</strong> ${esc(STORE_INFO.address)}</div>
+      ${STORE_INFO.address ? `<div class="hero-info-row"><strong>Địa chỉ:</strong> ${esc(STORE_INFO.address)}</div>` : ""}
       <div class="hero-info-row"><strong>Giờ mở cửa:</strong> ${esc(STORE_INFO.hoursText)}</div>
-      <div class="hero-info-row"><strong>SĐT:</strong> <a href="tel:${STORE_INFO.phoneTel}">${esc(STORE_INFO.phoneDisplay)}</a></div>
+      ${STORE_INFO.phoneDisplay ? `<div class="hero-info-row"><strong>SĐT:</strong> <a href="tel:${esc(STORE_INFO.phoneTel)}">${esc(STORE_INFO.phoneDisplay)}</a></div>` : ""}
     </div>
   </div>
   <nav class="cats">
@@ -425,12 +447,12 @@ function renderAdmin() {
   if (!me) { view = "customer"; return render(); }
   root.innerHTML = `
   <div class="admin-header">
-    <div class="brand"><img src="/assets/logo-icon.png" alt="Hồng Hoa"><span class="brand-text">Quản trị<small>Café Hồng Hoa</small></span></div>
+    <div class="brand"><img src="${esc(STORE_INFO.logo)}" alt="${esc(STORE_INFO.name)}"><span class="brand-text">Quản trị<small>${esc(STORE_INFO.name)}</small></span></div>
     <div style="display:flex;align-items:center;gap:10px;color:#ddd;font-size:13px">${esc(me.username)} (${esc(me.role)}) <button class="btn light" onclick="logoutAdmin()">Thoát</button></div>
   </div>
   <div class="admin">
     <div class="tabs">
-      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"],["mytime","Chấm công của tôi"],["debts","Công nợ"],["cashbook","Sổ quỹ"],["attendance","Chấm công"],["qrcode","Mã QR chấm công"],["reports","Báo cáo lãi lỗ"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
+      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"],["mytime","Chấm công của tôi"],["debts","Công nợ"],["cashbook","Sổ quỹ"],["attendance","Chấm công"],["qrcode","Mã QR chấm công"],["reports","Báo cáo lãi lỗ"],["shopinfo","Thông tin quán"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
     </div>
     <div id="adminBody"></div>
   </div>`;
@@ -452,6 +474,7 @@ async function paintAdminBody() {
   if (adminTab_ === "attendance") return paintAdminAttendance(el);
   if (adminTab_ === "qrcode") return paintAttendanceQr(el);
   if (adminTab_ === "reports") return paintAdminReports(el);
+  if (adminTab_ === "shopinfo") return paintShopInfo(el);
 }
 /** Chỉ admin/moderator được xem các tab tài chính/nhân sự nhạy cảm. */
 function requireFinanceAccess(el) {
@@ -1310,7 +1333,7 @@ function printQr() {
   const imgEl = holder && holder.querySelector("img, canvas");
   const src = imgEl ? (imgEl.tagName === "IMG" ? imgEl.src : imgEl.toDataURL()) : "";
   const w = window.open("", "_blank");
-  w.document.write(`<!DOCTYPE html><html><head><title>In mã QR chấm công</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:30px}img{width:280px;height:280px}</style></head><body><h2>Chấm công — Café Hồng Hoa</h2><img src="${src}"><p>Quét mã để chấm công (chỉ dùng được khi ở tại quán)</p><script>window.onload=function(){setTimeout(function(){window.print();},300)}</script></body></html>`);
+  w.document.write(`<!DOCTYPE html><html><head><title>In mã QR chấm công</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:30px}img{width:280px;height:280px}</style></head><body><h2>Chấm công — ${esc(STORE_INFO.name)}</h2><img src="${src}"><p>Quét mã để chấm công (chỉ dùng được khi ở tại quán)</p><script>window.onload=function(){setTimeout(function(){window.print();},300)}</script></body></html>`);
   w.document.close();
 }
 async function useMyLocationForShop() {
@@ -1329,6 +1352,75 @@ async function saveAttendanceSettings() {
   try {
     await api("PUT", "/api/attendance/settings", { latitude, longitude, radiusMeters });
     toast("Đã lưu vị trí quán.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+
+/* ================= THÔNG TIN QUÁN (tên, logo, địa chỉ, giờ mở cửa, SĐT) ================= */
+function paintShopInfo(el) {
+  if (!requireFinanceAccess(el)) return;
+  const s = STORE_INFO;
+  const hourOptions = (selected) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === selected ? "selected" : ""}>${String(h).padStart(2, "0")}h</option>`).join("");
+  const minuteOptions = (selected) => [0, 15, 30, 45].map((m) => `<option value="${m}" ${m === selected ? "selected" : ""}>${String(m).padStart(2, "0")}</option>`).join("");
+  el.innerHTML = `
+  <div class="panel">
+    <h3 style="margin-top:0">Thông tin quán</h3>
+    <p style="font-size:12.5px;color:var(--muted);margin-top:-6px">Thông tin này hiển thị ở trang đặt món, hoá đơn in cho khách, và tem pha chế.</p>
+    <div class="row2c" style="grid-template-columns:1fr 1fr">
+      <div><label style="font-size:11.5px;color:var(--muted)">Tên quán</label><input id="siName" value="${esc(s.name)}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Tagline (dòng phụ nhỏ)</label><input id="siTagline" value="${esc(s.tagline)}"></div>
+    </div>
+    <div style="margin-top:10px">
+      <label style="font-size:11.5px;color:var(--muted)">Logo quán</label><br>
+      <input id="siLogoFile" type="file" accept="image/*" onchange="previewShopLogo(event)">
+      <br><img id="siLogoPreview" src="${esc(s.logo)}" style="width:80px;height:80px;object-fit:cover;border-radius:12px;margin-top:8px;${s.logo ? "" : "display:none"}">
+    </div>
+    <div style="margin-top:10px"><label style="font-size:11.5px;color:var(--muted)">Địa chỉ</label><input id="siAddress" style="width:100%" value="${esc(s.address)}"></div>
+    <div class="row2c" style="grid-template-columns:1fr 1fr;margin-top:10px">
+      <div><label style="font-size:11.5px;color:var(--muted)">SĐT hiển thị (VD: 0909.777.621)</label><input id="siPhoneDisplay" value="${esc(s.phoneDisplay)}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">SĐT để bấm gọi (chỉ số, VD: 0909777621)</label><input id="siPhoneTel" value="${esc(s.phoneTel)}"></div>
+    </div>
+    <div style="margin-top:10px">
+      <label style="font-size:11.5px;color:var(--muted)">Giờ mở cửa</label>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <select id="siOpenHour">${hourOptions(s.openHour)}</select>:<select id="siOpenMinute">${minuteOptions(s.openMinute)}</select>
+        <span style="color:var(--muted)">đến</span>
+        <select id="siCloseHour">${hourOptions(s.closeHour)}</select>:<select id="siCloseMinute">${minuteOptions(s.closeMinute)}</select>
+      </div>
+    </div>
+    <div style="margin-top:16px"><button class="btn orange" onclick="saveShopInfo()">Lưu thông tin quán</button></div>
+  </div>`;
+}
+function previewShopLogo(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    document.getElementById("siLogoFile").dataset.data = r.result;
+    const img = document.getElementById("siLogoPreview");
+    img.src = r.result; img.style.display = "block";
+  };
+  r.readAsDataURL(f);
+}
+async function saveShopInfo() {
+  const name = document.getElementById("siName").value.trim();
+  if (!name) return toast("Vui lòng nhập tên quán.", "error");
+  const logoData = document.getElementById("siLogoFile").dataset.data;
+  const payload = {
+    name,
+    tagline: document.getElementById("siTagline").value.trim(),
+    logo: logoData !== undefined ? logoData : STORE_INFO.logo,
+    address: document.getElementById("siAddress").value.trim(),
+    phoneDisplay: document.getElementById("siPhoneDisplay").value.trim(),
+    phoneTel: document.getElementById("siPhoneTel").value.trim(),
+    openHour: document.getElementById("siOpenHour").value,
+    openMinute: document.getElementById("siOpenMinute").value,
+    closeHour: document.getElementById("siCloseHour").value,
+    closeMinute: document.getElementById("siCloseMinute").value,
+  };
+  try {
+    await api("PUT", "/api/shop-settings", payload);
+    await refreshShopSettings();
+    toast("Đã lưu thông tin quán.", "success");
+    renderAdmin();
   } catch (e) { toast(e.message, "error"); }
 }
 
