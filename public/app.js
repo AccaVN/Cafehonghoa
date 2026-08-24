@@ -551,7 +551,7 @@ function paintAdminSizes(el) {
   el.innerHTML = `<div class="panel">
     <h3 style="margin-top:0">Quản lý Size (${menu.sizeCatalog.length})</h3>
     <p style="color:var(--muted);font-size:12.5px;margin-top:0">Khai báo các loại size (VD: Nhỏ, Vừa, Lớn) một lần, rồi chọn ở tab "Món" khi thêm size cho từng món — không cần gõ lại tên size.</p>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.sizeCatalog.map((s) => `<span class="opt selected" style="display:flex;align-items:center;gap:8px">${esc(s.name)}<button onclick="editSize('${s.id}', ${JSON.stringify(s.name)})" title="Sửa tên size" style="border:0;background:none;cursor:pointer;font-weight:900">✎</button><button onclick="removeSize('${s.id}')" title="Xoá size" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("") || `<p class="empty" style="padding:0">Chưa có size nào.</p>`}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.sizeCatalog.map((s) => `<span class="opt selected" style="display:flex;align-items:center;gap:8px">${esc(s.name)}<button data-id="${s.id}" data-name="${esc(s.name)}" onclick="editSize(this.dataset.id, this.dataset.name)" title="Sửa tên size" style="border:0;background:none;cursor:pointer;font-weight:900">✎</button><button onclick="removeSize('${s.id}')" title="Xoá size" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("") || `<p class="empty" style="padding:0">Chưa có size nào.</p>`}</div>
     <div style="display:flex;gap:8px"><input id="newSize" placeholder="Tên size mới (VD: Lớn)"><button class="btn orange" onclick="addSize()">+ Thêm</button></div>
   </div>`;
 }
@@ -582,11 +582,11 @@ async function removeSize(id) {
 /* ---- sugar / ice levels ---- */
 function paintAdminLevels(el) {
   el.innerHTML = `<div class="panel"><h3 style="margin-top:0">Mức đường</h3>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.sugarLevels.map((s) => `<span class="opt selected" style="display:flex;gap:8px">${esc(s.name)}<button onclick="removeLevel('sugar','${s.id}')" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("")}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.sugarLevels.map((s) => `<span class="opt selected" style="display:flex;align-items:center;gap:8px">${esc(s.name)}<button data-id="${s.id}" data-name="${esc(s.name)}" onclick="editLevel('sugar', this.dataset.id, this.dataset.name)" title="Sửa tên" style="border:0;background:none;cursor:pointer;font-weight:900">✎</button><button onclick="removeLevel('sugar','${s.id}')" title="Xoá" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("")}</div>
     <div style="display:flex;gap:8px"><input id="newSugar" placeholder="Mức đường mới"><button class="btn light" onclick="addLevel('sugar')">+ Thêm</button></div>
   </div>
   <div class="panel"><h3 style="margin-top:0">Mức đá</h3>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.iceLevels.map((s) => `<span class="opt selected" style="display:flex;gap:8px">${esc(s.name)}<button onclick="removeLevel('ice','${s.id}')" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("")}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${menu.iceLevels.map((s) => `<span class="opt selected" style="display:flex;align-items:center;gap:8px">${esc(s.name)}<button data-id="${s.id}" data-name="${esc(s.name)}" onclick="editLevel('ice', this.dataset.id, this.dataset.name)" title="Sửa tên" style="border:0;background:none;cursor:pointer;font-weight:900">✎</button><button onclick="removeLevel('ice','${s.id}')" title="Xoá" style="border:0;background:none;cursor:pointer;font-weight:900">✕</button></span>`).join("")}</div>
     <div style="display:flex;gap:8px"><input id="newIce" placeholder="Mức đá mới"><button class="btn light" onclick="addLevel('ice')">+ Thêm</button></div>
   </div>`;
 }
@@ -595,20 +595,51 @@ async function addLevel(kind) {
   const name = input.value.trim(); if (!name) return;
   try { await api("POST", `/api/admin/levels/${kind}`, { name }); await refreshMenu(); renderAdmin(); } catch (e) { toast(e.message, "error"); }
 }
+async function editLevel(kind, id, currentName) {
+  const name = await showPrompt("Nhập tên mới cho mức " + (kind === "sugar" ? "đường" : "đá") + ".", {
+    title: "Sửa mức " + (kind === "sugar" ? "đường" : "đá"),
+    placeholder: currentName
+  });
+  if (!name || name === currentName) return;
+  try {
+    await api("PUT", `/api/admin/levels/${kind}/${id}`, { name });
+    await refreshMenu();
+    renderAdmin();
+    toast("Đã cập nhật.", "success");
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
 async function removeLevel(kind, id) {
+  if (!(await showConfirm("Xoá mức này?", { danger: true }))) return;
   try { await api("DELETE", `/api/admin/levels/${kind}/${id}`); await refreshMenu(); renderAdmin(); } catch (e) { toast(e.message, "error"); }
 }
 
 /* ---- categories ---- */
 function paintAdminCategories(el) {
   el.innerHTML = `<div class="panel"><h3 style="margin-top:0">Danh mục (${menu.categories.length})</h3>
-    ${menu.categories.map((c) => `<div class="row2c" style="grid-template-columns:1fr 90px;align-items:center;margin-bottom:6px"><span>${esc(c.name)}</span><button class="btn light" onclick="deleteCategory('${c.id}')">Xoá</button></div>`).join("")}
+    ${menu.categories.map((c) => `<div class="row2c" style="grid-template-columns:1fr 90px 90px;align-items:center;margin-bottom:6px"><span>${esc(c.name)}</span><button class="btn light" data-id="${c.id}" data-name="${esc(c.name)}" onclick="editCategory(this.dataset.id, this.dataset.name)">Sửa</button><button class="btn light" onclick="deleteCategory('${c.id}')">Xoá</button></div>`).join("")}
     <div style="display:flex;gap:8px;margin-top:12px"><input id="newCat" placeholder="Tên danh mục mới"><button class="btn orange" onclick="addCategory()">+ Thêm</button></div>
   </div>`;
 }
 async function addCategory() {
   const input = document.getElementById("newCat"); const name = input.value.trim(); if (!name) return;
   try { await api("POST", "/api/admin/categories", { name }); await refreshMenu(); renderAdmin(); toast("Đã thêm danh mục.", "success"); } catch (e) { toast(e.message, "error"); }
+}
+async function editCategory(id, currentName) {
+  const name = await showPrompt("Nhập tên mới cho danh mục.", {
+    title: "Sửa danh mục",
+    placeholder: currentName
+  });
+  if (!name || name === currentName) return;
+  try {
+    await api("PUT", "/api/admin/categories/" + id, { name });
+    await refreshMenu();
+    renderAdmin();
+    toast("Đã cập nhật danh mục.", "success");
+  } catch (e) {
+    toast(e.message, "error");
+  }
 }
 async function deleteCategory(id) {
   if (!(await showConfirm("Xoá danh mục này?", { danger: true }))) return;
