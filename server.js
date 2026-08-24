@@ -273,6 +273,13 @@ app.delete("/api/admin/products/:id", requireRole("admin", "moderator"), h(async
   await run("DELETE FROM products WHERE id=?", [req.params.id]);
   res.json({ ok: true });
 }));
+/** Chỉ cập nhật ảnh — dùng cho công cụ "Ảnh menu hàng loạt", không đụng tới size/topping/giá của món. */
+app.patch("/api/admin/products/:id/image", requireRole("admin", "moderator"), h(async (req, res) => {
+  const image = (req.body && req.body.image) || "";
+  const r = await run("UPDATE products SET image=? WHERE id=?", [image, req.params.id]);
+  if (!r.changes) return res.status(404).json({ error: "Không tìm thấy món." });
+  res.json({ ok: true });
+}));
 
 /* ================= ADMIN: TOPPING ================= */
 app.post("/api/admin/toppings", requireRole("admin", "moderator"), h(async (req, res) => {
