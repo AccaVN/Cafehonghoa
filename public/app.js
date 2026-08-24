@@ -89,16 +89,49 @@ function showStatusPicker(current, statuses) {
 }
 
 /* ================= boot ================= */
+/* Quét mã QR chấm công sẽ mở link dạng /?checkin=1 — nếu chưa đăng nhập thì tự mở màn hình
+   đăng nhập, đăng nhập xong nhảy thẳng vào tab "Chấm công của tôi" thay vì tab Món mặc định. */
+const CHECKIN_INTENT = new URLSearchParams(location.search).get("checkin") === "1";
+let myAttendanceToday_ = null;
+let myOpenPrevious_ = [];
+
 async function boot() {
   const root = document.getElementById("root");
   root.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted)">Đang tải thực đơn Café Hồng Hoa…</div>`;
   try {
     [menu, me] = await Promise.all([api("GET", "/api/menu"), api("GET", "/api/auth/me")]);
     activeCategory = ALL_CAT;
+    if (CHECKIN_INTENT && me) { view = "admin"; adminTab_ = "mytime"; }
     render();
+    if (CHECKIN_INTENT && !me) openLogin();
+    if (me) checkAttendanceReminders();
   } catch (e) {
     root.innerHTML = `<div style="padding:60px;text-align:center;color:#b3261e">Không kết nối được tới máy chủ. Vui lòng kiểm tra server đang chạy.</div>`;
   }
+}
+/** Nhắc nhở thụ động: hiện toast khi nhân viên/quản lý mở app mà quên chấm vào/ra, không cần hạ tầng push notification. */
+async function checkAttendanceReminders() {
+  if (!me || !["admin", "moderator", "staff"].includes(me.role)) return;
+  try {
+    const data = await api("GET", "/api/attendance/me");
+    myAttendanceToday_ = data.today;
+    myOpenPrevious_ = data.openPrevious;
+    if (myOpenPrevious_.length) {
+      toast(`⚠️ Bạn có ${myOpenPrevious_.length} ca làm trước đó quên chấm ra — báo quản lý để chỉnh lại giờ.`, "error");
+    }
+    if (isStoreOpenNow()) {
+      if (!myAttendanceToday_) {
+        toast("🔔 Bạn chưa chấm công vào ca hôm nay — quét QR ở quầy để chấm vào nhé!", "info");
+      } else if (myAttendanceToday_.check_in && !myAttendanceToday_.check_out) {
+        const now = new Date();
+        const mins = now.getHours() * 60 + now.getMinutes();
+        const close = STORE_INFO.closeHour * 60 + STORE_INFO.closeMinute;
+        if (close - mins <= 60 && close - mins >= 0) {
+          toast("🔔 Sắp đến giờ đóng quán — đừng quên chấm ra trước khi về nhé!", "info");
+        }
+      }
+    }
+  } catch (e) { /* không làm phiền người dùng nếu lỗi mạng nhỏ khi kiểm tra nhắc nhở */ }
 }
 async function refreshMenu() { menu = await api("GET", "/api/menu"); }
 
@@ -380,7 +413,8 @@ async function loginAdmin() {
   const password = document.getElementById("loginPass").value;
   try {
     me = await api("POST", "/api/auth/login", { username, password });
-    closeLogin(); view = "admin"; adminTab_ = "products"; render();
+    closeLogin(); view = "admin"; adminTab_ = CHECKIN_INTENT ? "mytime" : "products"; render();
+    checkAttendanceReminders();
   } catch (e) { document.getElementById("loginError").textContent = e.message; }
 }
 async function logoutAdmin() { await api("POST", "/api/auth/logout"); me = null; view = "customer"; render(); toast("Đã đăng xuất Admin.", "success"); }
@@ -396,7 +430,7 @@ function renderAdmin() {
   </div>
   <div class="admin">
     <div class="tabs">
-      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"],["debts","Công nợ"],["cashbook","Sổ quỹ"],["attendance","Chấm công"],["reports","Báo cáo lãi lỗ"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
+      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"],["mytime","Chấm công của tôi"],["debts","Công nợ"],["cashbook","Sổ quỹ"],["attendance","Chấm công"],["qrcode","Mã QR chấm công"],["reports","Báo cáo lãi lỗ"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
     </div>
     <div id="adminBody"></div>
   </div>`;
@@ -412,9 +446,11 @@ async function paintAdminBody() {
   if (adminTab_ === "categories") return paintAdminCategories(el);
   if (adminTab_ === "users") return paintAdminUsers(el);
   if (adminTab_ === "orders") return paintAdminOrders(el);
+  if (adminTab_ === "mytime") return paintMyAttendance(el);
   if (adminTab_ === "debts") return paintAdminDebts(el);
   if (adminTab_ === "cashbook") return paintAdminCashbook(el);
   if (adminTab_ === "attendance") return paintAdminAttendance(el);
+  if (adminTab_ === "qrcode") return paintAttendanceQr(el);
   if (adminTab_ === "reports") return paintAdminReports(el);
 }
 /** Chỉ admin/moderator được xem các tab tài chính/nhân sự nhạy cảm. */
@@ -1161,6 +1197,139 @@ function exportReportExcel() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lastReport_.expenseByCategory.map((c) => ({ "Danh mục": c.category, "Số tiền": c.total }))), "Chi phi theo danh muc");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lastReport_.daily.map((d) => ({ "Ngày": d.date, "Doanh thu": d.revenue, "Chi phí": d.expense, "Chênh lệch": d.revenue - d.expense }))), "Theo ngay");
   XLSX.writeFile(wb, `bao-cao-lai-lo-hong-hoa-${reportFilter_.from}_${reportFilter_.to}.xlsx`);
+}
+
+/* ================= CHẤM CÔNG CỦA TÔI (tự phục vụ, mọi role) ================= */
+let geoBusy_ = false;
+async function paintMyAttendance(el) {
+  el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--muted)">Đang tải…</div>`;
+  let data;
+  try { data = await api("GET", "/api/attendance/me"); } catch (e) { el.innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+  myAttendanceToday_ = data.today;
+  myOpenPrevious_ = data.openPrevious;
+  const t = myAttendanceToday_;
+  let statusHtml, actionHtml;
+  if (!t) {
+    statusHtml = `<div style="font-size:15px;color:var(--muted)">Bạn chưa chấm công hôm nay.</div>`;
+    actionHtml = `<button class="btn orange" style="width:100%;padding:16px;font-size:16px;margin-top:16px" onclick="doSelfCheckin()">📍 CHẤM VÀO</button>`;
+  } else if (t.check_in && !t.check_out) {
+    statusHtml = `<div style="font-size:15px">Đã chấm vào lúc <b>${new Date(t.check_in).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</b></div>`;
+    actionHtml = `<button class="btn orange" style="width:100%;padding:16px;font-size:16px;margin-top:16px" onclick="doSelfCheckout()">📍 CHẤM RA</button>`;
+  } else {
+    statusHtml = `<div style="font-size:15px;color:#4b5c2e">Đã hoàn tất chấm công hôm nay.<br>Vào: <b>${new Date(t.check_in).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</b> · Ra: <b>${new Date(t.check_out).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</b> · Tổng <b>${Number(t.hours).toFixed(2)} giờ</b></div>`;
+    actionHtml = "";
+  }
+  el.innerHTML = `
+  <div class="panel" style="text-align:center;padding:28px 20px">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:6px">${new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })}</div>
+    ${statusHtml}
+    ${actionHtml}
+    <div id="geoStatus" style="font-size:11.5px;color:var(--muted);margin-top:10px"></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:14px">Chỉ chấm công được khi bạn đang ở tại quán — hệ thống kiểm tra vị trí GPS điện thoại, chấm từ nhà sẽ bị từ chối.</div>
+  </div>
+  ${myOpenPrevious_.length ? `<div class="panel" style="border-color:#b3261e">
+    <h3 style="margin-top:0;color:#b3261e">⚠️ Ca làm chưa chấm ra</h3>
+    ${myOpenPrevious_.map((p) => `<div style="font-size:13px;padding:4px 0">${new Date(p.work_date).toLocaleDateString("vi-VN")} — chấm vào lúc ${new Date(p.check_in).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</div>`).join("")}
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">Báo quản lý sửa lại giờ ra ở tab "Chấm công" — bạn không tự chấm ra cho ngày cũ được.</div>
+  </div>` : ""}`;
+}
+function getGeoPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("Trình duyệt không hỗ trợ định vị."));
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => {
+        const msgs = {
+          1: "Bạn chưa cho phép truy cập vị trí. Vào cài đặt trình duyệt bật quyền định vị rồi thử lại.",
+          2: "Không xác định được vị trí. Hãy ra chỗ thoáng hoặc bật GPS rồi thử lại.",
+          3: "Định vị quá thời gian chờ, thử lại nhé.",
+        };
+        reject(new Error(msgs[err.code] || "Không lấy được vị trí."));
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  });
+}
+async function doSelfCheckin() { runSelfAttendance("checkin"); }
+async function doSelfCheckout() { runSelfAttendance("checkout"); }
+async function runSelfAttendance(kind) {
+  if (geoBusy_) return;
+  geoBusy_ = true;
+  const statusEl = document.getElementById("geoStatus");
+  if (statusEl) statusEl.textContent = "Đang xác định vị trí…";
+  try {
+    const { lat, lng } = await getGeoPosition();
+    if (statusEl) statusEl.textContent = "Đang gửi...";
+    await api("POST", `/api/attendance/self/${kind}`, { lat, lng });
+    toast(kind === "checkin" ? "Đã chấm vào thành công!" : "Đã chấm ra thành công!", "success");
+    paintAdminBody();
+  } catch (e) {
+    toast(e.message, "error");
+    if (statusEl) statusEl.textContent = "";
+  } finally {
+    geoBusy_ = false;
+  }
+}
+
+/* ================= MÃ QR CHẤM CÔNG + CẤU HÌNH VỊ TRÍ QUÁN (admin/moderator) ================= */
+async function paintAttendanceQr(el) {
+  if (!requireFinanceAccess(el)) return;
+  const settings = await api("GET", "/api/attendance/settings");
+  const checkinUrl = location.origin + "/?checkin=1";
+  el.innerHTML = `
+  <div class="panel" style="text-align:center">
+    <h3 style="margin-top:0">Mã QR chấm công</h3>
+    <p style="font-size:12.5px;color:var(--muted)">In mã này dán tại quầy để nhân viên quét cho nhanh. Nhưng mã QR chỉ là lối vào — thứ THỰC SỰ chặn chấm công từ xa là vị trí GPS bên dưới: dù chụp ảnh mã này mang về nhà, hệ thống vẫn từ chối vì điện thoại không ở gần quán.</p>
+    <div id="qrHolder" style="display:flex;justify-content:center;margin:16px 0"></div>
+    <div style="font-size:11.5px;color:var(--muted);word-break:break-all">${esc(checkinUrl)}</div>
+    <button class="btn-mini btn-mini-solid" style="margin-top:12px" onclick="printQr()">In mã QR</button>
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">Vị trí quán (để chặn chấm công từ xa)</h3>
+    <div class="row2c" style="grid-template-columns:1fr 1fr 120px">
+      <div><label style="font-size:11.5px;color:var(--muted)">Vĩ độ (latitude)</label><input id="geoLat" type="text" value="${settings.latitude ?? ""}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Kinh độ (longitude)</label><input id="geoLng" type="text" value="${settings.longitude ?? ""}"></div>
+      <div><label style="font-size:11.5px;color:var(--muted)">Bán kính (m)</label><input id="geoRadius" type="number" min="10" max="2000" value="${settings.radius_meters}"></div>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn light" onclick="useMyLocationForShop()">📍 Lấy vị trí hiện tại (đứng trong quán rồi bấm)</button>
+      <button class="btn orange" onclick="saveAttendanceSettings()">Lưu vị trí</button>
+    </div>
+    <p style="font-size:11.5px;color:var(--muted);margin-top:10px">Toạ độ mặc định được tra theo địa chỉ quán, có thể lệch vài chục mét. Để chính xác nhất: đứng ngay quầy pha chế, bấm "Lấy vị trí hiện tại" rồi Lưu.</p>
+  </div>`;
+  renderQrCanvas(checkinUrl);
+}
+function renderQrCanvas(text) {
+  const holder = document.getElementById("qrHolder");
+  if (!holder || typeof QRCode === "undefined") { if (holder) holder.textContent = "Không tải được thư viện tạo mã QR."; return; }
+  holder.innerHTML = "";
+  new QRCode(holder, { text, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+}
+function printQr() {
+  const holder = document.getElementById("qrHolder");
+  const imgEl = holder && holder.querySelector("img, canvas");
+  const src = imgEl ? (imgEl.tagName === "IMG" ? imgEl.src : imgEl.toDataURL()) : "";
+  const w = window.open("", "_blank");
+  w.document.write(`<!DOCTYPE html><html><head><title>In mã QR chấm công</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:30px}img{width:280px;height:280px}</style></head><body><h2>Chấm công — Café Hồng Hoa</h2><img src="${src}"><p>Quét mã để chấm công (chỉ dùng được khi ở tại quán)</p><script>window.onload=function(){setTimeout(function(){window.print();},300)}</script></body></html>`);
+  w.document.close();
+}
+async function useMyLocationForShop() {
+  try {
+    toast("Đang lấy vị trí hiện tại…", "info");
+    const { lat, lng } = await getGeoPosition();
+    document.getElementById("geoLat").value = lat;
+    document.getElementById("geoLng").value = lng;
+    toast("Đã lấy vị trí — nhớ bấm Lưu vị trí.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+async function saveAttendanceSettings() {
+  const latitude = document.getElementById("geoLat").value;
+  const longitude = document.getElementById("geoLng").value;
+  const radiusMeters = document.getElementById("geoRadius").value;
+  try {
+    await api("PUT", "/api/attendance/settings", { latitude, longitude, radiusMeters });
+    toast("Đã lưu vị trí quán.", "success");
+  } catch (e) { toast(e.message, "error"); }
 }
 
 boot();
