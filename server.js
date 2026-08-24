@@ -520,6 +520,98 @@ app.delete("/api/admin/attendance/:id", requireRole("admin", "moderator"), h(asy
   res.json({ ok: true });
 }));
 
+/* ================= CHẤM CÔNG TỰ PHỤC VỤ (QR + định vị GPS) =================
+   Nguyên tắc: mã QR chỉ là lối vào nhanh (link), thứ THỰC SỰ chặn chấm công từ xa là so khoảng
+   cách GPS của điện thoại lúc bấm nút với toạ độ quán lưu ở attendance_settings. Nếu vượt bán
+   kính cho phép thì từ chối, dù có link hay không. */
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+async function getAttendanceSettings() {
+  let row = await get("SELECT * FROM attendance_settings WHERE id='default'");
+  if (!row) {
+    await run("INSERT INTO attendance_settings(id,radius_meters,updated_at) VALUES ('default',100,now())");
+    row = await get("SELECT * FROM attendance_settings WHERE id='default'");
+  }
+  return row;
+}
+app.get("/api/attendance/settings", requireRole("admin", "moderator"), h(async (req, res) => {
+  res.json(await getAttendanceSettings());
+}));
+app.put("/api/attendance/settings", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { latitude, longitude, radiusMeters } = req.body || {};
+  const lat = parseFloat(latitude), lng = parseFloat(longitude), rad = parseInt(radiusMeters);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: "Toạ độ không hợp lệ." });
+  if (!rad || rad < 10 || rad > 2000) return res.status(400).json({ error: "Bán kính nên trong khoảng 10 - 2000 mét." });
+  await run(
+    "INSERT INTO attendance_settings(id,latitude,longitude,radius_meters,updated_at,updated_by) VALUES ('default',?,?,?,now(),?) ON CONFLICT (id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,radius_meters=EXCLUDED.radius_meters,updated_at=now(),updated_by=EXCLUDED.updated_by",
+    [lat, lng, rad, req.user.username]
+  );
+  res.json({ ok: true });
+}));
+
+/** Trả về trạng thái chấm công hôm nay + các ca chấm vào nhưng chưa chấm ra ở những ngày trước (để nhắc nhở/cảnh báo). */
+app.get("/api/attendance/me", requireRole("admin", "moderator", "staff"), h(async (req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const [todayRow, openPrevious] = await Promise.all([
+    get("SELECT * FROM attendance WHERE user_id=? AND work_date=?", [req.user.id, today]),
+    all("SELECT * FROM attendance WHERE user_id=? AND work_date<? AND check_in IS NOT NULL AND check_out IS NULL ORDER BY work_date DESC", [req.user.id, today]),
+  ]);
+  res.json({ today: todayRow, openPrevious });
+}));
+
+app.post("/api/attendance/self/checkin", requireRole("admin", "moderator", "staff"), h(async (req, res) => {
+  const { lat, lng } = req.body || {};
+  if (typeof lat !== "number" || typeof lng !== "number") {
+    return res.status(400).json({ error: "Thiếu vị trí định vị. Vui lòng bật định vị (GPS) trên điện thoại rồi thử lại." });
+  }
+  const settings = await getAttendanceSettings();
+  if (settings.latitude == null || settings.longitude == null) {
+    return res.status(400).json({ error: "Quán chưa cấu hình vị trí chấm công. Vui lòng báo quản lý." });
+  }
+  const dist = distanceMeters(lat, lng, settings.latitude, settings.longitude);
+  if (dist > settings.radius_meters) {
+    return res.status(403).json({ error: `Bạn đang cách quán khoảng ${Math.round(dist)}m — chỉ chấm công được khi ở tại quán (trong bán kính ${settings.radius_meters}m).` });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const existing = await get("SELECT * FROM attendance WHERE user_id=? AND work_date=?", [req.user.id, today]);
+  if (existing) return res.status(409).json({ error: existing.check_out ? "Bạn đã hoàn tất chấm công hôm nay rồi." : "Bạn đã chấm vào hôm nay rồi." });
+  const id = uid("att_");
+  await run("INSERT INTO attendance(id,user_id,work_date,check_in,note,created_by) VALUES (?,?,?,now(),?,?)", [
+    id, req.user.id, today, "Tự chấm công (QR)", req.user.username,
+  ]);
+  const row = await get("SELECT * FROM attendance WHERE id=?", [id]);
+  res.status(201).json(row);
+}));
+
+app.post("/api/attendance/self/checkout", requireRole("admin", "moderator", "staff"), h(async (req, res) => {
+  const { lat, lng } = req.body || {};
+  if (typeof lat !== "number" || typeof lng !== "number") {
+    return res.status(400).json({ error: "Thiếu vị trí định vị. Vui lòng bật định vị (GPS) trên điện thoại rồi thử lại." });
+  }
+  const settings = await getAttendanceSettings();
+  if (settings.latitude == null || settings.longitude == null) {
+    return res.status(400).json({ error: "Quán chưa cấu hình vị trí chấm công. Vui lòng báo quản lý." });
+  }
+  const dist = distanceMeters(lat, lng, settings.latitude, settings.longitude);
+  if (dist > settings.radius_meters) {
+    return res.status(403).json({ error: `Bạn đang cách quán khoảng ${Math.round(dist)}m — chỉ chấm công được khi ở tại quán (trong bán kính ${settings.radius_meters}m).` });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const existing = await get("SELECT * FROM attendance WHERE user_id=? AND work_date=?", [req.user.id, today]);
+  if (!existing || !existing.check_in) return res.status(409).json({ error: "Bạn chưa chấm vào hôm nay, không thể chấm ra." });
+  if (existing.check_out) return res.status(409).json({ error: "Bạn đã chấm ra hôm nay rồi." });
+  const hours = computeHours(existing.check_in, new Date().toISOString());
+  await run("UPDATE attendance SET check_out=now(), hours=? WHERE id=?", [hours, existing.id]);
+  const row = await get("SELECT * FROM attendance WHERE id=?", [existing.id]);
+  res.json(row);
+}));
+
 /* ================= ADMIN: BÁO CÁO LÃI LỖ CHI TIẾT ================= */
 app.get("/api/admin/reports/profit-loss", requireRole("admin", "moderator"), h(async (req, res) => {
   let { from, to } = req.query || {};

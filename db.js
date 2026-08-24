@@ -169,6 +169,15 @@ CREATE TABLE IF NOT EXISTS attendance(
   created_by TEXT,
   UNIQUE(user_id, work_date)
 );
+-- Cấu hình vị trí quán (dùng để chặn nhân viên chấm công từ xa). Chỉ 1 dòng duy nhất, id cố định 'default'.
+CREATE TABLE IF NOT EXISTS attendance_settings(
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  radius_meters INTEGER NOT NULL DEFAULT 100,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by TEXT
+);
 `;
 
 /** Menu thật của Café Hồng Hoa (theo bảng giá quán cung cấp). Mỗi món 1 mức giá chuẩn (không chia size Nhỏ/Vừa/Lớn). */
@@ -304,6 +313,15 @@ async function initDb() {
   const sizeCountRow = await get("SELECT COUNT(*)::int c FROM sizes");
   if (!sizeCountRow.c) {
     await run("INSERT INTO sizes(id,name,sort_order) VALUES (?,?,0)", [uid("szc_"), "Vừa"]);
+  }
+
+  // Toạ độ mặc định tra theo địa chỉ quán — CHỦ QUÁN NÊN vào tab "Mã QR chấm công" và bấm
+  // "Lấy vị trí hiện tại" khi đang đứng thật trong quán để lấy toạ độ chính xác hơn.
+  const settingsRow = await get("SELECT id FROM attendance_settings WHERE id='default'");
+  if (!settingsRow) {
+    await run("INSERT INTO attendance_settings(id,latitude,longitude,radius_meters,updated_at) VALUES ('default',?,?,?,now())", [
+      10.1857238, 106.6941122, 100,
+    ]);
   }
 }
 
