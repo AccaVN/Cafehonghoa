@@ -452,7 +452,7 @@ function renderAdmin() {
   </div>
   <div class="admin">
     <div class="tabs">
-      ${[["products","Món"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"],["mytime","Chấm công của tôi"],["debts","Công nợ"],["cashbook","Sổ quỹ"],["attendance","Chấm công"],["qrcode","Mã QR chấm công"],["reports","Báo cáo lãi lỗ"],["shopinfo","Thông tin quán"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
+      ${[["products","Món"],["bulkimg","Ảnh menu hàng loạt"],["toppings","Topping"],["sizes","Size"],["levels","Đường / Đá"],["categories","Danh mục"],["users","User"],["orders","Đơn hàng"],["mytime","Chấm công của tôi"],["debts","Công nợ"],["cashbook","Sổ quỹ"],["attendance","Chấm công"],["qrcode","Mã QR chấm công"],["reports","Báo cáo lãi lỗ"],["shopinfo","Thông tin quán"]].map(([k,l])=>`<button class="${adminTab_===k?'active':''}" onclick="setAdminTab('${k}')">${l}</button>`).join("")}
     </div>
     <div id="adminBody"></div>
   </div>`;
@@ -462,6 +462,7 @@ function setAdminTab(t) { adminTab_ = t; renderAdmin(); }
 async function paintAdminBody() {
   const el = document.getElementById("adminBody");
   if (adminTab_ === "products") return paintAdminProducts(el);
+  if (adminTab_ === "bulkimg") return paintBulkImages(el);
   if (adminTab_ === "toppings") return paintAdminToppings(el);
   if (adminTab_ === "sizes") return paintAdminSizes(el);
   if (adminTab_ === "levels") return paintAdminLevels(el);
@@ -1422,6 +1423,63 @@ async function saveShopInfo() {
     toast("Đã lưu thông tin quán.", "success");
     renderAdmin();
   } catch (e) { toast(e.message, "error"); }
+}
+
+/* ================= ẢNH MENU HÀNG LOẠT (dán link ảnh, không cần tải về máy) ================= */
+async function paintBulkImages(el) {
+  if (!requireFinanceAccess(el)) return;
+  el.innerHTML = `
+  <div class="panel">
+    <h3 style="margin-top:0">Ảnh menu hàng loạt</h3>
+    <p style="font-size:12.5px;color:var(--muted)">Dán link ảnh (URL) cho từng món rồi bấm "Lưu", không cần tải ảnh về máy. Mẹo: chuột phải vào ảnh ưng ý trên mạng → "Sao chép địa chỉ hình ảnh" (Copy image address) → dán vào ô bên dưới. Nhớ chỉ dùng ảnh có quyền sử dụng thương mại (Pexels, Unsplash, Pixabay, hoặc ảnh tự chụp).</p>
+  </div>
+  ${menu.categories.map((c) => {
+    const prods = menu.products.filter((p) => p.categoryId === c.id);
+    if (!prods.length) return "";
+    return `<div class="panel">
+      <h3 style="margin-top:0">${esc(c.name)}</h3>
+      ${prods.map((p) => `
+        <div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line)">
+          <img id="bimg_prev_${p.id}" src="${esc(p.image || "")}" style="width:48px;height:48px;object-fit:cover;border-radius:8px;background:#f3ece7;flex-shrink:0;${p.image ? "" : "display:none"}">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:13px">${esc(p.name)}</div>
+            <input id="bimg_url_${p.id}" placeholder="Dán link ảnh (URL)..." value="${p.image && p.image.startsWith("http") ? esc(p.image) : ""}" style="width:100%;margin-top:4px" oninput="previewBulkImageUrl('${p.id}')">
+          </div>
+          <button class="btn light" onclick="saveBulkImage('${p.id}')">Lưu</button>
+        </div>`).join("")}
+    </div>`;
+  }).join("")}
+  <div class="panel" style="text-align:center">
+    <button class="btn orange" onclick="saveAllBulkImages()">Lưu tất cả ảnh đã dán</button>
+  </div>`;
+}
+function previewBulkImageUrl(id) {
+  const input = document.getElementById("bimg_url_" + id);
+  const img = document.getElementById("bimg_prev_" + id);
+  if (!input || !img) return;
+  const v = input.value.trim();
+  if (v) { img.src = v; img.style.display = "block"; } else { img.style.display = "none"; }
+}
+async function saveBulkImage(id) {
+  const input = document.getElementById("bimg_url_" + id);
+  const url = input.value.trim();
+  try {
+    await api("PATCH", `/api/admin/products/${id}/image`, { image: url });
+    await refreshMenu();
+    toast("Đã lưu ảnh.", "success");
+  } catch (e) { toast(e.message, "error"); }
+}
+async function saveAllBulkImages() {
+  const inputs = [...document.querySelectorAll('[id^="bimg_url_"]')].filter((i) => i.value.trim());
+  if (!inputs.length) return toast("Chưa dán link ảnh nào.", "error");
+  let okCount = 0, failCount = 0;
+  for (const input of inputs) {
+    const id = input.id.replace("bimg_url_", "");
+    try { await api("PATCH", `/api/admin/products/${id}/image`, { image: input.value.trim() }); okCount++; } catch (e) { failCount++; }
+  }
+  await refreshMenu();
+  toast(`Đã lưu ${okCount} ảnh${failCount ? `, ${failCount} lỗi` : ""}.`, failCount ? "error" : "success");
+  paintAdminBody();
 }
 
 boot();
