@@ -368,6 +368,203 @@ app.delete("/api/admin/users/:id", requireRole("admin", "moderator"), h(async (r
   res.json({ ok: true });
 }));
 
+/* ================= ADMIN: SỔ QUỸ THU / CHI ================= */
+app.get("/api/admin/cashbook", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { from, to, type } = req.query || {};
+  const conds = [];
+  const params = [];
+  if (from) { conds.push("occurred_at >= ?"); params.push(from); }
+  if (to) { conds.push("occurred_at <= ?"); params.push(to + " 23:59:59"); }
+  if (type === "thu" || type === "chi") { conds.push("type = ?"); params.push(type); }
+  const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
+  const rows = await all(`SELECT * FROM cashbook ${where} ORDER BY occurred_at DESC`, params);
+  res.json(rows);
+}));
+app.post("/api/admin/cashbook", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { type, category, amount, note, occurredAt } = req.body || {};
+  if (!["thu", "chi"].includes(type)) return res.status(400).json({ error: "Loại phải là 'thu' hoặc 'chi'." });
+  const amt = parseInt(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: "Số tiền không hợp lệ." });
+  const id = uid("cb_");
+  await run(
+    "INSERT INTO cashbook(id,type,category,amount,note,occurred_at,created_by) VALUES (?,?,?,?,?,?,?)",
+    [id, type, (category || "Khác").trim(), amt, (note || "").trim(), occurredAt || new Date().toISOString(), req.user.username]
+  );
+  res.status(201).json({ id });
+}));
+app.put("/api/admin/cashbook/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { type, category, amount, note, occurredAt } = req.body || {};
+  if (!["thu", "chi"].includes(type)) return res.status(400).json({ error: "Loại phải là 'thu' hoặc 'chi'." });
+  const amt = parseInt(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: "Số tiền không hợp lệ." });
+  const r = await run(
+    "UPDATE cashbook SET type=?,category=?,amount=?,note=?,occurred_at=? WHERE id=?",
+    [type, (category || "Khác").trim(), amt, (note || "").trim(), occurredAt || new Date().toISOString(), req.params.id]
+  );
+  if (!r.changes) return res.status(404).json({ error: "Không tìm thấy khoản thu/chi này." });
+  res.json({ ok: true });
+}));
+app.delete("/api/admin/cashbook/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  await run("DELETE FROM cashbook WHERE id=?", [req.params.id]);
+  res.json({ ok: true });
+}));
+
+/* ================= ADMIN: CÔNG NỢ ================= */
+async function loadDebts() {
+  const [debts, payments] = await Promise.all([
+    all("SELECT * FROM debts ORDER BY created_at DESC"),
+    all("SELECT * FROM debt_payments ORDER BY paid_at ASC"),
+  ]);
+  const paymentsByDebt = {};
+  for (const p of payments) (paymentsByDebt[p.debt_id] ||= []).push(p);
+  return debts.map((d) => {
+    const paid = (paymentsByDebt[d.id] || []).reduce((s, p) => s + p.amount, 0);
+    return { ...d, payments: paymentsByDebt[d.id] || [], paid, remaining: d.amount - paid };
+  });
+}
+app.get("/api/admin/debts", requireRole("admin", "moderator"), h(async (req, res) => res.json(await loadDebts())));
+app.post("/api/admin/debts", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { type, partnerName, phone, amount, note } = req.body || {};
+  if (!["receivable", "payable"].includes(type)) return res.status(400).json({ error: "Loại công nợ không hợp lệ." });
+  if (!partnerName || !String(partnerName).trim()) return res.status(400).json({ error: "Vui lòng nhập tên đối tác/khách hàng." });
+  const amt = parseInt(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: "Số tiền không hợp lệ." });
+  const id = uid("dbt_");
+  await run(
+    "INSERT INTO debts(id,type,partner_name,phone,amount,note,status,created_at,created_by) VALUES (?,?,?,?,?,?,'open',now(),?)",
+    [id, type, String(partnerName).trim(), (phone || "").trim(), amt, (note || "").trim(), req.user.username]
+  );
+  res.status(201).json({ id });
+}));
+app.put("/api/admin/debts/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { partnerName, phone, amount, note } = req.body || {};
+  if (!partnerName || !String(partnerName).trim()) return res.status(400).json({ error: "Vui lòng nhập tên đối tác/khách hàng." });
+  const amt = parseInt(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: "Số tiền không hợp lệ." });
+  const r = await run("UPDATE debts SET partner_name=?,phone=?,amount=?,note=? WHERE id=?", [
+    String(partnerName).trim(), (phone || "").trim(), amt, (note || "").trim(), req.params.id,
+  ]);
+  if (!r.changes) return res.status(404).json({ error: "Không tìm thấy khoản nợ này." });
+  res.json({ ok: true });
+}));
+app.delete("/api/admin/debts/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  await run("DELETE FROM debts WHERE id=?", [req.params.id]);
+  res.json({ ok: true });
+}));
+app.post("/api/admin/debts/:id/payments", requireRole("admin", "moderator"), h(async (req, res) => {
+  const debt = await get("SELECT * FROM debts WHERE id=?", [req.params.id]);
+  if (!debt) return res.status(404).json({ error: "Không tìm thấy khoản nợ này." });
+  const amt = parseInt(req.body?.amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: "Số tiền không hợp lệ." });
+  const id = uid("dp_");
+  await run("INSERT INTO debt_payments(id,debt_id,amount,note,paid_at,created_by) VALUES (?,?,?,?,now(),?)", [
+    id, debt.id, amt, (req.body?.note || "").trim(), req.user.username,
+  ]);
+  const paidRow = await get("SELECT COALESCE(SUM(amount),0)::int s FROM debt_payments WHERE debt_id=?", [debt.id]);
+  if (paidRow.s >= debt.amount) await run("UPDATE debts SET status='closed' WHERE id=?", [debt.id]);
+  res.status(201).json({ id });
+}));
+app.delete("/api/admin/debts/:id/payments/:paymentId", requireRole("admin", "moderator"), h(async (req, res) => {
+  await run("DELETE FROM debt_payments WHERE id=? AND debt_id=?", [req.params.paymentId, req.params.id]);
+  await run("UPDATE debts SET status='open' WHERE id=?", [req.params.id]);
+  res.json({ ok: true });
+}));
+
+/* ================= ADMIN: CHẤM CÔNG NHÂN VIÊN ================= */
+function computeHours(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0;
+  const ms = new Date(checkOut).getTime() - new Date(checkIn).getTime();
+  if (!(ms > 0)) return 0;
+  return Math.round((ms / 3600000) * 100) / 100;
+}
+app.get("/api/admin/attendance", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { from, to, userId } = req.query || {};
+  const conds = [];
+  const params = [];
+  if (from) { conds.push("a.work_date >= ?"); params.push(from); }
+  if (to) { conds.push("a.work_date <= ?"); params.push(to); }
+  if (userId) { conds.push("a.user_id = ?"); params.push(userId); }
+  const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
+  const rows = await all(
+    `SELECT a.*, u.username FROM attendance a JOIN users u ON u.id=a.user_id ${where} ORDER BY a.work_date DESC, u.username`,
+    params
+  );
+  res.json(rows);
+}));
+app.post("/api/admin/attendance", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { userId, workDate, checkIn, checkOut, note } = req.body || {};
+  if (!userId || !workDate) return res.status(400).json({ error: "Vui lòng chọn nhân viên và ngày công." });
+  const user = await get("SELECT id FROM users WHERE id=?", [userId]);
+  if (!user) return res.status(400).json({ error: "Không tìm thấy nhân viên." });
+  const existing = await get("SELECT id FROM attendance WHERE user_id=? AND work_date=?", [userId, workDate]);
+  if (existing) return res.status(409).json({ error: "Nhân viên này đã có bản ghi chấm công cho ngày này." });
+  const hours = computeHours(checkIn, checkOut);
+  const id = uid("att_");
+  await run(
+    "INSERT INTO attendance(id,user_id,work_date,check_in,check_out,hours,note,created_by) VALUES (?,?,?,?,?,?,?,?)",
+    [id, userId, workDate, checkIn || null, checkOut || null, hours, (note || "").trim(), req.user.username]
+  );
+  res.status(201).json({ id });
+}));
+app.put("/api/admin/attendance/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  const { checkIn, checkOut, note } = req.body || {};
+  const hours = computeHours(checkIn, checkOut);
+  const r = await run("UPDATE attendance SET check_in=?,check_out=?,hours=?,note=? WHERE id=?", [
+    checkIn || null, checkOut || null, hours, (note || "").trim(), req.params.id,
+  ]);
+  if (!r.changes) return res.status(404).json({ error: "Không tìm thấy bản ghi chấm công." });
+  res.json({ ok: true });
+}));
+app.delete("/api/admin/attendance/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  await run("DELETE FROM attendance WHERE id=?", [req.params.id]);
+  res.json({ ok: true });
+}));
+
+/* ================= ADMIN: BÁO CÁO LÃI LỖ CHI TIẾT ================= */
+app.get("/api/admin/reports/profit-loss", requireRole("admin", "moderator"), h(async (req, res) => {
+  let { from, to } = req.query || {};
+  if (!from || !to) {
+    const now = new Date();
+    from = from || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    to = to || now.toISOString().slice(0, 10);
+  }
+  const [revenueByDay, expenseByDay, expenseByCategory, incomeByCategory, totals] = await Promise.all([
+    all(
+      "SELECT to_char(created_at,'YYYY-MM-DD') d, COALESCE(SUM(total),0)::int total FROM orders WHERE status<>'Đã xóa' AND created_at::date BETWEEN ? AND ? GROUP BY d ORDER BY d",
+      [from, to]
+    ),
+    all(
+      "SELECT to_char(occurred_at,'YYYY-MM-DD') d, COALESCE(SUM(amount),0)::int total FROM cashbook WHERE type='chi' AND occurred_at::date BETWEEN ? AND ? GROUP BY d ORDER BY d",
+      [from, to]
+    ),
+    all(
+      "SELECT category, COALESCE(SUM(amount),0)::int total FROM cashbook WHERE type='chi' AND occurred_at::date BETWEEN ? AND ? GROUP BY category ORDER BY total DESC",
+      [from, to]
+    ),
+    all(
+      "SELECT category, COALESCE(SUM(amount),0)::int total FROM cashbook WHERE type='thu' AND occurred_at::date BETWEEN ? AND ? GROUP BY category ORDER BY total DESC",
+      [from, to]
+    ),
+    (async () => {
+      const revRow = await get("SELECT COALESCE(SUM(total),0)::int s FROM orders WHERE status<>'Đã xóa' AND created_at::date BETWEEN ? AND ?", [from, to]);
+      const expRow = await get("SELECT COALESCE(SUM(amount),0)::int s FROM cashbook WHERE type='chi' AND occurred_at::date BETWEEN ? AND ?", [from, to]);
+      const otherIncomeRow = await get("SELECT COALESCE(SUM(amount),0)::int s FROM cashbook WHERE type='thu' AND occurred_at::date BETWEEN ? AND ?", [from, to]);
+      const orderCountRow = await get("SELECT COUNT(*)::int c FROM orders WHERE status<>'Đã xóa' AND created_at::date BETWEEN ? AND ?", [from, to]);
+      return { revenue: revRow.s, expense: expRow.s, otherIncome: otherIncomeRow.s, orderCount: orderCountRow.c };
+    })(),
+  ]);
+  const revenue = totals.revenue, expense = totals.expense, otherIncome = totals.otherIncome;
+  const profit = revenue + otherIncome - expense;
+  const dayMap = {};
+  for (const r of revenueByDay) dayMap[r.d] = { date: r.d, revenue: r.total, expense: 0 };
+  for (const r of expenseByDay) { (dayMap[r.d] ||= { date: r.d, revenue: 0, expense: 0 }).expense = r.total; }
+  const daily = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
+  res.json({
+    from, to, revenue, otherIncome, expense, profit, orderCount: totals.orderCount,
+    expenseByCategory, incomeByCategory, daily,
+  });
+}));
+
 /* ================= IN BILL / IN TEM (trang in riêng, dùng cho iPhone) =================
    Lý do có route riêng: trên iOS (Safari/Chrome), lệnh in thường chụp/in theo đúng trang
    web đang mở ở tầng trên cùng — nó KHÔNG tôn trọng nội dung được JS bơm/ẩn-hiện ngay trên

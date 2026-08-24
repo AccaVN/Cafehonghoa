@@ -127,6 +127,48 @@ CREATE TABLE IF NOT EXISTS sessions(
   role TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Sổ quỹ thu/chi: mọi khoản thu (ngoài đơn hàng) và chi phí vận hành quán.
+CREATE TABLE IF NOT EXISTS cashbook(
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL, -- 'thu' | 'chi'
+  category TEXT NOT NULL DEFAULT 'Khác',
+  amount INTEGER NOT NULL,
+  note TEXT DEFAULT '',
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by TEXT
+);
+-- Công nợ: phải thu (khách hàng nợ quán) hoặc phải trả (quán nợ nhà cung cấp).
+CREATE TABLE IF NOT EXISTS debts(
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL, -- 'receivable' (phải thu) | 'payable' (phải trả)
+  partner_name TEXT NOT NULL,
+  phone TEXT DEFAULT '',
+  amount INTEGER NOT NULL,
+  note TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open', -- open | closed
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by TEXT
+);
+CREATE TABLE IF NOT EXISTS debt_payments(
+  id TEXT PRIMARY KEY,
+  debt_id TEXT NOT NULL REFERENCES debts(id) ON DELETE CASCADE,
+  amount INTEGER NOT NULL,
+  note TEXT DEFAULT '',
+  paid_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by TEXT
+);
+-- Chấm công nhân viên theo ngày.
+CREATE TABLE IF NOT EXISTS attendance(
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  work_date DATE NOT NULL,
+  check_in TIMESTAMPTZ,
+  check_out TIMESTAMPTZ,
+  hours NUMERIC(6,2) NOT NULL DEFAULT 0,
+  note TEXT DEFAULT '',
+  created_by TEXT,
+  UNIQUE(user_id, work_date)
+);
 `;
 
 /** Menu thật của Café Hồng Hoa (theo bảng giá quán cung cấp). Mỗi món 1 mức giá chuẩn (không chia size Nhỏ/Vừa/Lớn). */
