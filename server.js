@@ -180,6 +180,17 @@ app.delete("/api/admin/categories/:id", requireRole("admin", "moderator"), h(asy
   await run("DELETE FROM categories WHERE id=?", [req.params.id]);
   res.json({ ok: true });
 }));
+app.put("/api/admin/categories/:id", requireRole("admin", "moderator"), h(async (req, res) => {
+  const id = req.params.id;
+  const name = (req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Tên danh mục không được để trống." });
+  const current = await get("SELECT id FROM categories WHERE id=?", [id]);
+  if (!current) return res.status(404).json({ error: "Không tìm thấy danh mục." });
+  const duplicate = await get("SELECT id FROM categories WHERE name=? AND id<>?", [name, id]);
+  if (duplicate) return res.status(409).json({ error: "Danh mục này đã tồn tại." });
+  await run("UPDATE categories SET name=? WHERE id=?", [name, id]);
+  res.json({ id, name });
+}));
 
 /** Kiểm tra + tra tên cho danh sách size gửi lên (mỗi dòng phải chọn 1 size có sẵn trong danh mục, không gõ tay). */
 async function resolveProductSizes(sizesInput) {
@@ -310,6 +321,17 @@ function levelRoutes(table) {
     if (countRow.c <= 1) return res.status(409).json({ error: "Phải giữ ít nhất 1 mức." });
     await run(`DELETE FROM ${table}_levels WHERE id=?`, [req.params.id]);
     res.json({ ok: true });
+  }));
+  app.put(`/api/admin/levels/${table}/:id`, requireRole("admin", "moderator"), h(async (req, res) => {
+    const id = req.params.id;
+    const name = (req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Không được để trống." });
+    const current = await get(`SELECT id FROM ${table}_levels WHERE id=?`, [id]);
+    if (!current) return res.status(404).json({ error: "Không tìm thấy mức này." });
+    const duplicate = await get(`SELECT id FROM ${table}_levels WHERE name=? AND id<>?`, [name, id]);
+    if (duplicate) return res.status(409).json({ error: "Mức này đã tồn tại." });
+    await run(`UPDATE ${table}_levels SET name=? WHERE id=?`, [name, id]);
+    res.json({ id, name });
   }));
 }
 levelRoutes("sugar");
